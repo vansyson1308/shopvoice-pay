@@ -2,6 +2,54 @@
 
 Running log for ShopVoice Pay (PayPal AI Hackathon). Newest entry first. Times are Vietnam time (UTC+7).
 
+## 2026-10-05 (Mon, 03:45 VN): M2 build complete except the live hosted preview
+
+**Done (all merged into `main` with CI green)**
+- PR #8 (`m2/payment-tools`): the payment tools and the approval ladder, as described in the previous entry.
+- PR #9: **owner API and PayPal webhooks**.
+  - `/owner/api/*` accepts static tokens only. OAuth tokens and browser `Origin` requests get 403.
+  - Approve and decline by payment id. PayPal return pages and a labelled simulated PayPal page in mock mode.
+  - Webhook: signature verified on the raw body, `custom_id` mapped to its tenant by a definer function (migration 022), then `sync()` re-reads PayPal. The payload never sets money state (D11).
+- PR #10: **"Try the demo"**. Each console visitor gets a private sample shop (migration 023; D12). Reset demo. Idle visitor shops are removed after 3 days. Per-IP and global limits.
+- PR #11: **Claude as the console brain**, through Claude in Amazon Bedrock (`AnthropicBedrockMantle`) or the Anthropic API, with the rules brain as an offline fallback.
+  - Voice approval: the host asks "Say yes to approve $142 to Valley Farm Eggs", and its own code matches the answer (D13).
+- PR #12: **console redesign**. Tabs: Talk, Approvals, Ledger and Suppliers (AG Grid Community, CSP-nonce theming), and Rules & PayPal.
+  - The ledger shows "honor period ends" (3 days) and "hold expires" (29 days).
+  - Payment dialog with delivery and refund forms; CSV export; PayPal approval QR; honesty banner.
+- PR #13: **agent evals and browser e2e**.
+  - 22 safety cases with a scripted adversarial model; the CI gate is 100%. 15 quality cases.
+  - A Playwright hero story runs in CI and fails on any console error or CSP violation.
+  - The evals found two real bugs, both fixed: a question containing "OK" approved a payment, and refunds were offered on seeded history with no capture. The host now enforces intent guards (D14).
+- PR #14: **Render Blueprint** (`render.yaml`; D15; `docs/paypal/DEPLOY.md`).
+  - Services: console and MCP server as Docker web services, plus Postgres 16 as a private service on a disk. Managed Postgres cannot grant the BYPASSRLS the migrations need.
+  - A pre-deploy step runs migrations as the superuser and creates the RLS-bound login `shopvoice_app`.
+  - The MCP server refuses to start in production as a superuser or BYPASSRLS login.
+  - X-Forwarded-For trusted-hop setting for Render's proxy. CI builds and inspects both images.
+- PR #15: **public pages** (docs, privacy, terms, support; English and Vietnamese) and the sign-in pages now describe ShopVoice Pay, with retention matching the code (audit log 90 days, visitor shops 3 idle days).
+
+**Verified (local, on `main` at 5b898b6, and in CI)**
+- Unit: 239/239. DB: 57/57 on Postgres 16.
+- Evals: safety 100% of 22, quality 100% of 15 (rules brain).
+- Browser e2e: 1/1. `demo:e2e`: passed.
+- Policy engine coverage: 100% lines, 98.89% branches.
+- Deploy path, end to end on a fresh Postgres 16 cluster:
+  - built both images, ran the pre-deploy step twice;
+  - started both containers as `shopvoice_app`;
+  - ran the hero flow by API and in Chromium, with no console errors.
+- `PAYPAL_MODE=sandbox` with real sandbox credentials starts against Postgres and creates visitor shops.
+
+**Simulated (labelled in the product)**
+- In mock mode: the PayPal approval page (`/sim/paypal`) and the saved PayPal account of each demo shop.
+- Seeded payment history has no PayPal transactions behind it, so refunds are offered only on charges made in the session.
+
+**Hosted preview: not live yet.** It needs the owner's Render account (DEPLOY.md, steps 1–5).
+
+**Blocked on the owner**
+- Render account and Blueprint, about $21/month.
+- Bedrock credentials (`BEDROCK_AWS_ACCESS_KEY_ID` and `BEDROCK_AWS_SECRET_ACCESS_KEY`, with `bedrock-mantle:CreateInference` on the Claude model ARNs in us-east-1), or `ANTHROPIC_API_KEY`.
+- `SANDBOX_SUPPLIER_EMAILS` for Valley Farm Eggs, Hillside Bakery and Harbor Wholesale.
+- GitGuardian dashboard: incidents 37864810 and 37865123 were test fixtures, removed from the branch history before merge. They can be resolved as false positives.
+
 ## 2026-10-05 (Mon, 02:30 VN): M2 started: guardrails, US seed, payments in the MCP tools
 
 **Done**
