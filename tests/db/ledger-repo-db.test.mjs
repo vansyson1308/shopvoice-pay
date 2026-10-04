@@ -41,4 +41,9 @@ test.after(async () => {
   await closePool(pool);
 });
 
-runLedgerContract('pg ledger', { withRepo: (fn) => withRepo(fn), skip });
+async function makeDraftId() {
+  const { rows } = await query(pool, "INSERT INTO purchase_order_drafts (tenant_id, supplier_code, lines, total_minor, status, created_via, expires_at) VALUES ($1, 'SUP-DAIRY', '[]'::jsonb, 14400, 'confirmed', 'voice', now()) RETURNING id", [TENANT]);
+  return rows[0].id;
+}
+
+runLedgerContract('pg ledger', { withRepo: (fn) => withRepo(fn), makeDraftId, skip });

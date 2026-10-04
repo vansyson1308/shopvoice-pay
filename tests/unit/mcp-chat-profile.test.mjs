@@ -31,7 +31,7 @@ test('tool metadata: titles, read/write hints, short names, neutral descriptions
     const token = await oauthToken(srv);
     const s = await mcpSession(srv, token);
     const tools = await listTools(srv, token, s.session);
-    assert.equal(tools.length, 9);
+    assert.equal(tools.length, 16);
     for (const t of tools) {
       assert.ok(t.name.length <= 64, t.name);
       assert.ok(t.title && t.annotations?.title, `${t.name} has a title`);
@@ -45,7 +45,11 @@ test('tool metadata: titles, read/write hints, short names, neutral descriptions
     assert.equal(byName.create_reorder_draft.annotations.readOnlyHint, false);
     assert.equal(byName.create_reorder_draft.annotations.destructiveHint, false);
     const reads = tools.filter((t) => t.annotations.readOnlyHint === true).map((t) => t.name).sort();
-    assert.deepEqual(reads, ['get_daily_briefing', 'get_invoice_status', 'get_low_stock', 'get_sales_summary', 'get_stock_level', 'get_top_movers', 'suggest_reorder']);
+    assert.deepEqual(reads, ['explain_payment', 'get_daily_briefing', 'get_invoice_status', 'get_low_stock', 'get_payment_status', 'get_sales_summary',
+      'get_spend_summary', 'get_spending_policy', 'get_stock_level', 'get_top_movers', 'suggest_reorder']);
+    for (const name of ['confirm_reorder', 'record_delivery', 'request_refund', 'set_spending_policy']) {
+      assert.equal(byName[name].annotations.destructiveHint, true, `Claude asks the user before ${name}`);
+    }
   } finally {
     await srv.close();
   }
@@ -112,7 +116,7 @@ test('reorder in Claude: the draft token is visible to the model; confirm is a s
     assert.match(draft.json.result.content[0].text, /Not placed yet/);
     const confirmed = await callTool(srv, token, s.session, 'confirm_reorder', { confirmation_token: sc.confirmation_token });
     assert.equal(confirmed.json.result.structuredContent.status, 'confirmed');
-    assert.match(confirmed.json.result.content[0].text, /no payment was made/);
+    assert.match(confirmed.json.result.content[0].text, /No payment was made/, "this server runs without payments");
     const again = await callTool(srv, token, s.session, 'confirm_reorder', { confirmation_token: sc.confirmation_token });
     assert.equal(again.json.result.structuredContent.status, 'already_confirmed', 'single use');
   } finally {

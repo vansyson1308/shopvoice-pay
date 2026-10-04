@@ -23,15 +23,15 @@
 
 <h2 id="account">Your account and your shop</h2>
 <ul>
-<li><b>New accounts get a demo shop with sample data</b>, labelled "Demo shop (sample data)": 60 products, 5 suppliers, 90 days of sales and 3 supplier invoices, so you can try every tool right away. The sample data resets once a day, which also clears sample drafts.</li>
+<li><b>New accounts get a demo shop with sample data</b>, labelled "Your demo shop (sample data)": a fictional US corner market with 47 products, 4 fictional suppliers, 30 days of sales, 3 supplier invoices, spending rules and a simulated PayPal account, so you can try every tool right away. The sample data resets once a day.</li>
 <li><b>Real shops:</b> ask your shop owner for a GroceryClaw invite code and enter it on your <a href="/account">account page</a>. Your account then switches to the real shop. Connected apps must sign in again so they see the new shop.</li>
-<li>Choose English (prices in US dollars) or Vietnamese (prices in đồng) at sign-up.</li>
+<li>Prices are in US dollars. Payments run in PayPal's sandbox or a simulated PayPal: no real money moves in the demo.</li>
 </ul>
 
 <h2 id="tools">Tools</h2>
 <div class="table"><table>
 <tr><th>Tool</th><th>What it does</th><th>Try asking</th><th>Access</th></tr>
-<tr><td><code>get_daily_briefing</code></td><td>Yesterday's sales against the same weekday last week, low-stock count, invoices not yet synced</td><td>"Give me my shop briefing"</td><td>read</td></tr>
+<tr><td><code>get_daily_briefing</code></td><td>Yesterday's sales against the same weekday last week, low-stock count, invoices not yet posted</td><td>"Give me my shop briefing"</td><td>read</td></tr>
 <tr><td><code>get_low_stock</code></td><td>Products at or below their minimum, most urgent first, with days of cover</td><td>"What's running low?"</td><td>read</td></tr>
 <tr><td><code>get_stock_level</code></td><td>Stock of one product by name or barcode</td><td>"How much whole milk do I have?"</td><td>read</td></tr>
 <tr><td><code>get_sales_summary</code></td><td>Revenue and units for a period, compared with the same weekday or the previous period</td><td>"How were sales yesterday compared to last Friday?"</td><td>read</td></tr>
@@ -39,22 +39,31 @@
 <tr><td><code>get_invoice_status</code></td><td>Recent supplier invoices: arrived, matched to products, or posted to inventory</td><td>"Did the Harbor Wholesale invoice arrive?"</td><td>read</td></tr>
 <tr><td><code>suggest_reorder</code></td><td>What to reorder per supplier and how much ((lead time + 7 days) × average daily sales − stock, rounded up to the pack size)</td><td>"What should I reorder from the dairy supplier?"</td><td>read</td></tr>
 <tr><td><code>create_reorder_draft</code></td><td>Creates purchase-order drafts, one per supplier. Nothing is ordered yet</td><td>"Draft a reorder for milk and eggs"</td><td>write</td></tr>
-<tr><td><code>confirm_reorder</code></td><td>Confirms those drafts in your shop's purchase orders</td><td>"Yes, confirm it"</td><td>write (Claude asks you first)</td></tr>
+<tr><td><code>confirm_reorder</code></td><td>Confirms those drafts and pays each supplier through PayPal within your spending rules: held until delivery, approval asked when over the rules, blocked when not allowed</td><td>"Yes, confirm it"</td><td>write (Claude asks you first)</td></tr>
+<tr><td><code>get_payment_status</code></td><td>Where each supplier payment stands: waiting for approval, held, charged, released, refunded or blocked; when the hold ends</td><td>"Did the egg payment go through?"</td><td>read</td></tr>
+<tr><td><code>record_delivery</code></td><td>Records what arrived; charges only for that and releases the rest of the hold, then pays the supplier</td><td>"Only 8 crates of milk came"</td><td>write (Claude asks you first)</td></tr>
+<tr><td><code>request_refund</code></td><td>Refunds a supplier charge to your PayPal, in two steps</td><td>"Refund the bread, it was stale"</td><td>write (Claude asks you first)</td></tr>
+<tr><td><code>get_spend_summary</code></td><td>Supplier spend today and this week against your budgets, money on hold, approvals waiting</td><td>"How much have I spent on suppliers this week?"</td><td>read</td></tr>
+<tr><td><code>explain_payment</code></td><td>Why a payment was paid, held for your approval or blocked, and what happened since</td><td>"Why did the egg order need my OK?"</td><td>read</td></tr>
+<tr><td><code>get_spending_policy</code></td><td>Your auto-pay limit, budgets, hard caps, approved suppliers and price checks</td><td>"What are my spending rules?"</td><td>read</td></tr>
+<tr><td><code>set_spending_policy</code></td><td>Changes the rules. Tightening applies at once; loosening needs your own approval outside the chat</td><td>"Lower my auto-pay limit to $80"</td><td>write (Claude asks you first)</td></tr>
 </table></div>
 <p>The resource <code>shop://profile</code> has the shop name, currency and timezone. The prompt <code>morning_briefing</code> starts a daily briefing.</p>
 
-<h2 id="safety">How reorders stay safe</h2>
+<h2 id="safety">How payments stay safe</h2>
 <ol>
 <li><code>create_reorder_draft</code> only writes drafts. It returns a one-time confirmation token that expires after 5 minutes and works only for your shop.</li>
-<li><code>confirm_reorder</code> is marked destructive, so Claude asks for your approval before it runs. Confirming changes the drafts' status in your shop's records; <b>ShopVoice never contacts suppliers and never moves money</b>.</li>
-<li>Confirming the same drafts twice has no further effect, and expired drafts cannot be confirmed.</li>
+<li><code>confirm_reorder</code> is marked destructive, so Claude asks before it runs. The AI can only propose: ShopVoice's own rules engine decides each payment, and only server code talks to PayPal.</li>
+<li>Within your rules, the money is <b>held</b> on PayPal, not charged. You are charged only for what is delivered; the rest is released.</li>
+<li>Over your rules (for example above your auto-pay limit, or a price jump), ShopVoice asks you directly: in Claude's own confirmation dialog when the app supports it, otherwise on PayPal's approval page. The approval never passes through the AI. If neither can reach you, nothing is paid.</li>
+<li>Suppliers not on your approved list, hard caps and duplicate orders are blocked, even with approval.</li>
+<li>Confirming the same drafts twice never pays twice, and expired drafts cannot be confirmed.</li>
 </ol>
-<p>By voice (Alexa+), the host keeps the token out of the model, and only an explicit "yes" confirms.</p>
 
 <h2 id="permissions">Permissions</h2>
 <ul>
 <li><code>shop.read</code>: read stock, sales, suppliers and invoices.</li>
-<li><code>shop.write</code>: create and confirm purchase-order drafts. You can untick this on the consent screen and keep read-only access. Claude will ask you to reconnect if you later ask for a reorder.</li>
+<li><code>shop.write</code>: create and confirm purchase-order drafts, pay suppliers within your rules, record deliveries, refunds and rule changes. You can untick this on the consent screen and keep read-only access. Claude will ask you to reconnect if you later ask for a reorder.</li>
 <li><code>offline_access</code>: stay connected; the access token lasts 1 hour and is refreshed automatically for up to 30 days of inactivity.</li>
 </ul>
 <p>See and revoke connected apps, or delete your account, on the <a href="/account">account page</a>.</p>
@@ -70,7 +79,7 @@
 <h3>Does ShopVoice read my chats?</h3>
 <p>No. It only receives the tool name and arguments Claude sends, such as a product name or a date range. It never reads your conversation, Claude's memory or your files.</p>
 <h3>Can it pay a supplier?</h3>
-<p>No. ShopVoice only records purchase-order drafts and confirmations inside your shop's own records.</p>
+<p>Yes, within the spending rules you set, through PayPal (sandbox in this demo). Money is held until delivery and charged only for what arrived. Anything over your rules waits for your own approval.</p>
 <h3>Where is my data stored?</h3>
 <p>On Amazon Web Services in the United States. See the <a href="/privacy">privacy policy</a>.</p>
 <h3>Something failed</h3>

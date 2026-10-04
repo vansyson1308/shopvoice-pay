@@ -10,7 +10,8 @@ import type { ShopStore } from './store.js';
 import { createShopVoiceServer } from './mcp.js';
 import type { ClientProfile } from './mcp.js';
 import type { McpServerConfig } from './config.js';
-import { ALL_TOOLS } from './tools.js';
+import { ALL_TOOLS } from './tool-catalog.js';
+import type { PaymentsService } from './payments/service.js';
 import { createOAuthServer } from './oauth/server.js';
 import type { OAuthServer } from './oauth/server.js';
 import type { OAuthStore } from './oauth/store.js';
@@ -61,6 +62,18 @@ export interface McpHttpDeps {
   readonly now?: () => number;
   /** OAuth authorization server; active when config.publicBaseUrl is set. */
   readonly oauth?: { readonly store: OAuthStore; readonly cimd?: CimdResolver };
+  /** Supplier payments; without it, payment tools report that payments are not set up. */
+  readonly payments?: PaymentsService;
+}
+
+/**
+ * A client that can answer elicitation needs server-to-client requests in the
+ * middle of a tool call, which only a streamed (SSE) response can carry.
+ * Everyone else keeps the configured mode (plain JSON by default).
+ */
+export function wantsStreamedResponses(initialize: unknown): boolean {
+  const caps = (initialize as { params?: { capabilities?: { elicitation?: unknown } } } | null)?.params?.capabilities;
+  return !!caps && typeof caps.elicitation === 'object' && caps.elicitation !== null;
 }
 
 const SECURITY_HEADERS: Record<string, string> = {
@@ -321,10 +334,13 @@ export function createMcpHttpHandler(deps: McpHttpDeps): McpHttpHandler {
     }
 
     const profile: ClientProfile = principal.kind === 'oauth' ? 'chat' : 'voice';
-    const server = createShopVoiceServer({ store, tenantId, logger, confirmTtlSeconds: config.confirmTtlSeconds, profile });
+    const server = createShopVoiceServer({
+      store, tenantId, logger, confirmTtlSeconds: config.confirmTtlSeconds, profile,
+      payments: deps.payments ?? null, elicitationTimeoutMs: config.elicitationTimeoutMs
+    });
     const transport = new StreamableHTTPServerTransport({
       sessionIdGenerator: () => randomUUID(),
-      enableJsonResponse: config.jsonResponses,
+      enableJsonResponse: config.jsonResponses && !wantsStreamedResponses(body),
       onsessioninitialized: (id) => {
         sessions.set(id, { transport, server, tenantId, principalKey: principal.key, lastSeenMs: now() });
         logger.info('mcp_session_started', { tenant_id: tenantId, session_id: id });

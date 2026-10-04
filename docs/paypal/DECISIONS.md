@@ -111,3 +111,23 @@ Database role names inside migrations 001–018 (`groceryclaw_app_runtime`, …)
 - Playwright is a dev dependency only.
 
 **Why.** Four buyer approvals per spike run, and later the hosted e2e, would otherwise need a person at a keyboard. The product itself never automates the owner's approval. Playwright is also the planned e2e runner (§7.B), so this adds no new framework.
+
+## D10. Approving a step-up from any MCP client, without the model (2026-10-05, owner decision for M2)
+
+**Decision.** When the rules say "ask the owner" (step-up), `confirm_reorder` gets the approval by the first path that applies:
+1. **The owner's ShopVoice console** (static bearer, voice profile). The payment waits on the console's approval card. A spoken "yes" is matched by server code, not by the model.
+2. **Other MCP clients that support a form (MCP elicitation, form mode).** The server asks the client directly: "Approve $142 to Valley Farm Eggs? …" with a yes/no field. Accept places the hold (`approved_by = owner_elicitation`, migration 021). Decline voids the payment.
+3. **Otherwise, PayPal's own approval page.** The server creates a one-off AUTHORIZE order and the owner approves it on PayPal (phone link or QR). PayPal's login is the step-up. If the client supports URL elicitation, the link goes straight to the client and is left out of the tool result. Otherwise it is returned as `approval_url`. When PayPal reports the order approved, the rules run again before the hold is placed (`approved_by = owner_paypal`).
+4. **Otherwise the payment is declined, with the reason** ("I couldn't get an approval request to you, so I didn't pay").
+
+**What the model never sees.**
+- The ShopVoice approval token: it is stored only as a hash, and none of the paths returns it.
+- The vault id, and PayPal authorization and capture ids.
+- The PayPal order id appears only inside PayPal's approval URL in path 3, and it cannot move money without the owner's PayPal login and our server credentials.
+- `tests/unit/mcp-payments.test.mjs` checks every tool result, the elicitation requests and the audit log for these values.
+
+**Spending rules follow the same principle.** Tightening a rule applies at once. A change that lets more be paid without asking (a higher limit, a removed hard cap, a newly approved supplier, looser checks) needs the owner's own approval: the client's form, or the console's Policy tab. Otherwise nothing changes.
+
+**Transactions.** Payment tools run as "session" tools: every repository call commits on its own (`auto-commit.ts`), still under RLS. So a PayPal hold and the ledger row that records it are durable together, and waiting for the owner never holds a database transaction open. Clients that declare elicitation get streamed (SSE) responses for their session, because a JSON response cannot carry a server-to-client request mid-call. Other clients keep plain JSON.
+
+**Idempotency.** One draft backs at most one live payment (unique index, migration 021). Confirming the same drafts again reports the existing payments. A step-up still waiting gets a fresh approval request; nothing is paid twice.

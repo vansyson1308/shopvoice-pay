@@ -15,6 +15,30 @@ import {
   speakList, minorToDisplay, MAX_LIST_ITEMS
 } from './speech.js';
 import type { MoneyFormat } from './speech.js';
+import type { PaymentsService, ServiceContext } from './payments/service.js';
+
+/** The answer to an approval asked through the MCP client, outside the model. */
+export type ClientAnswer = 'accept' | 'decline' | 'cancel' | 'unavailable';
+
+/**
+ * How the owner can approve a step-up payment from this MCP session.
+ * console: the owner's own ShopVoice console approves (approval card or a
+ * spoken "yes" matched by server code). client: every other MCP client, which
+ * is asked through MCP elicitation when it supports it. Neither path hands an
+ * approval token to the model.
+ */
+export interface ApprovalChannel {
+  readonly kind: 'console' | 'client';
+  /** In-client yes/no form (MCP form elicitation). */
+  confirm(message: string): Promise<ClientAnswer>;
+  /** Asks the client to open a URL for the owner (MCP URL elicitation); the URL is not shown to the model. */
+  openUrl(message: string, url: string): Promise<ClientAnswer>;
+}
+
+export interface PaymentsBridge {
+  readonly service: PaymentsService;
+  readonly ctx: ServiceContext;
+}
 
 export interface ToolContext {
   readonly repo: ShopRepository;
@@ -22,6 +46,9 @@ export interface ToolContext {
   readonly today: string;
   readonly money: MoneyFormat;
   readonly confirmTtlSeconds: number;
+  /** Null when this server runs without payments. */
+  readonly payments: PaymentsBridge | null;
+  readonly approvals: ApprovalChannel;
 }
 
 export interface ToolOutcome<T> {
@@ -43,15 +70,22 @@ export interface ToolDefinition<I extends z.ZodRawShape, O extends z.ZodRawShape
   readonly input: I;
   readonly output: O;
   readonly annotations: ToolAnnotations;
+  /**
+   * Session tools run without one enclosing transaction: every repository
+   * call commits on its own. Money tools need this so a PayPal call and its
+   * ledger write are durable together, and so waiting for the owner never
+   * holds a database transaction open.
+   */
+  readonly session?: true;
   readonly redact?: (args: z.infer<z.ZodObject<I>>) => Record<string, unknown>;
   readonly run: (ctx: ToolContext, args: z.infer<z.ZodObject<I>>) => Promise<ToolOutcome<z.infer<z.ZodObject<O>>>>;
 }
 
-function defineTool<I extends z.ZodRawShape, O extends z.ZodRawShape>(def: ToolDefinition<I, O>): ToolDefinition<I, O> {
+export function defineTool<I extends z.ZodRawShape, O extends z.ZodRawShape>(def: ToolDefinition<I, O>): ToolDefinition<I, O> {
   return def;
 }
 
-const READ_ONLY: ToolAnnotations = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false };
+export const READ_ONLY: ToolAnnotations = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false };
 
 // ---------- shared schemas ----------
 
@@ -215,7 +249,7 @@ export const getStockLevel = defineTool({
   }
 });
 
-const moneyOut = { currency: z.string() };
+export const moneyOut = { currency: z.string() };
 
 export const getSalesSummary = defineTool({
   name: 'get_sales_summary',
@@ -499,7 +533,7 @@ async function planBySupplier(ctx: ToolContext, lines: { row: StockRow; qty: num
   return [...plans.values()].sort((a, b) => b.totalMinor - a.totalMinor);
 }
 
-function supplierMatches(plan: SupplierPlan, query: string): boolean {
+export function supplierMatches(plan: { supplierCode: string; supplierName: string }, query: string): boolean {
   const q = query.toLowerCase().trim();
   return plan.supplierCode.toLowerCase() === q || plan.supplierName.toLowerCase().includes(q)
     || q.split(/\s+/).filter((w) => w.length > 2).some((w) => plan.supplierName.toLowerCase().includes(w));
@@ -710,54 +744,6 @@ export const createReorderDraft = defineTool({
   }
 });
 
-export const confirmReorder = defineTool({
-  name: 'confirm_reorder',
-  title: 'Confirm a reorder (step 2 of 2)',
-  description: 'Marks the purchase-order drafts from one create_reorder_draft call as confirmed orders in the shop\'s own records, using that call\'s confirmation_token (valid 5 minutes). It changes their status only: it does not contact suppliers or send any payment. Confirming the same drafts again has no further effect.',
-  input: {
-    confirmation_token: z.string().trim().min(8).max(64)
-  },
-  output: {
-    status: z.enum(['confirmed', 'already_confirmed', 'expired', 'not_found']),
-    confirmed_count: z.number().int(),
-    ...moneyOut,
-    total_minor: z.number(),
-    total: z.number(),
-    drafts: z.array(z.object({ draft_id: z.string(), supplier_code: z.string(), supplier_name: z.string(), status: z.string(), total: z.number() }))
-  },
-  annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
-  redact: () => ({ confirmation_token: '[redacted]' }),
-  async run(ctx, args) {
-    const drafts = await ctx.repo.findDraftsByTokenHash(hashConfirmationToken(args.confirmation_token));
-    const suppliers = new Map((await ctx.repo.listSuppliers()).map((s) => [s.code, s.name]));
-    const totalMinor = drafts.reduce((n, d) => n + d.totalMinor, 0);
-    const base = { currency: ctx.money.currency, total_minor: totalMinor, total: minorToDisplay(totalMinor, ctx.money) };
-    const out = (status: string) => drafts.map((d) => ({
-      draft_id: d.id, supplier_code: d.supplierCode, supplier_name: suppliers.get(d.supplierCode) ?? d.supplierCode,
-      status: d.status === 'draft' ? status : d.status, total: minorToDisplay(d.totalMinor, ctx.money)
-    }));
-
-    if (drafts.length === 0) {
-      return { speech: "I couldn't find that draft. Want me to create a new reorder?", data: { status: 'not_found' as const, confirmed_count: 0, ...base, drafts: [] } };
-    }
-    const pending = drafts.filter((d) => d.status === 'draft');
-    if (pending.length === 0) {
-      return { speech: 'Those orders were already confirmed. Nothing else to do.', data: { status: 'already_confirmed' as const, confirmed_count: 0, ...base, drafts: out('confirmed') } };
-    }
-    if (pending.some((d) => d.expired)) {
-      return { speech: 'That draft expired after 5 minutes, so nothing was ordered. Want me to make a fresh one?', data: { status: 'expired' as const, confirmed_count: 0, ...base, drafts: out('expired') } };
-    }
-    const count = await ctx.repo.confirmDrafts(pending.map((d) => d.id));
-    const names = [...new Set(pending.map((d) => suppliers.get(d.supplierCode) ?? d.supplierCode))];
-    const itemCount = pending.reduce((n, d) => n + d.lines.length, 0);
-    const speech = fitSpeech([
-      `Done. ${count === 1 ? 'Your order' : `${countWord(count, true)} orders`} to ${joinList(names)} ${count === 1 ? 'is' : 'are'} confirmed: ${itemCount} ${itemCount === 1 ? 'item' : 'items'}, about ${formatMoney(totalMinor, ctx.money)}.`,
-      `Done. ${countWord(count, true)} ${count === 1 ? 'order' : 'orders'} confirmed, about ${formatMoney(totalMinor, ctx.money)}.`
-    ]);
-    return { speech, data: { status: 'confirmed' as const, confirmed_count: count, ...base, drafts: out('confirmed') } };
-  }
-});
-
 export const getDailyBriefing = defineTool({
   name: 'get_daily_briefing',
   title: 'Morning briefing',
@@ -800,8 +786,3 @@ export const getDailyBriefing = defineTool({
     };
   }
 });
-
-export const ALL_TOOLS = [
-  getLowStock, getStockLevel, getSalesSummary, getTopMovers, getInvoiceStatus,
-  suggestReorder, createReorderDraft, confirmReorder, getDailyBriefing
-] as const;

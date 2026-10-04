@@ -33,7 +33,7 @@ export function newPayment(extra = {}) {
   };
 }
 
-export function runLedgerContract(label, { withRepo, skip = false }) {
+export function runLedgerContract(label, { withRepo, makeDraftId = async () => randomUUID(), skip = false }) {
   const t = (name, fn) => test(`${label}: ${name}`, { skip }, fn);
 
   t('spending policy round-trips, including disabled hard caps', async () => {
@@ -140,6 +140,20 @@ export function runLedgerContract(label, { withRepo, skip = false }) {
     assert.equal(approved.approvalTokenHash, null);
     assert.equal(approved.approvedBy, 'owner_voice');
     assert.equal(await withRepo((repo) => repo.findPaymentByApprovalHash(hash)), null);
+  });
+
+  t('a draft backs at most one live payment; a failed one can be retried', async () => {
+    const draftId = await makeDraftId();
+    const first = await withRepo((repo) => repo.createPayment(newPayment({ draftId }), event('policy_evaluated', 14_400)));
+    assert.equal((await withRepo((repo) => repo.findPaymentByDraftId(draftId))).id, first.id);
+    await assert.rejects(
+      withRepo((repo) => repo.createPayment(newPayment({ draftId }), event('policy_evaluated', 14_400))),
+      (e) => e instanceof LedgerConflictError && e.code === 'draft_already_paid'
+    );
+    await withRepo((repo) => repo.record(first.id, { action: { kind: 'fail' }, event: event('failed', 14_400) }));
+    assert.equal(await withRepo((repo) => repo.findPaymentByDraftId(draftId)), null);
+    const retry = await withRepo((repo) => repo.createPayment(newPayment({ draftId }), event('policy_evaluated', 14_400)));
+    assert.equal((await withRepo((repo) => repo.findPaymentByDraftId(draftId))).id, retry.id);
   });
 
   t('order lines are stored with the payment; deliveries are recorded per payment', async () => {

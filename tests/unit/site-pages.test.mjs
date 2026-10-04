@@ -3,7 +3,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { startOAuthServer } from './oauth-harness.mjs';
-import { ALL_TOOLS } from '../../apps/mcp-server/dist/tools.js';
+import { ALL_TOOLS } from '../../apps/mcp-server/dist/tool-catalog.js';
 
 const SUPPORT = 'help@shop.test';
 

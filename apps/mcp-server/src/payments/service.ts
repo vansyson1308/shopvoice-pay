@@ -7,13 +7,14 @@
 //
 // Settlement model (DECISIONS.md D1, sandbox-confirmed): orders are paid to
 // the platform account; suppliers are paid out for what was captured.
-import { createHash, randomBytes } from 'node:crypto';
+import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { decryptPayload, encryptPayload } from '../../../../packages/common/dist/index.js';
 import { evaluatePolicy, periodStarts } from '../policy/policy-engine.js';
 import type { PolicyDraft, PolicyResult, SpendHistoryEntry, SpendPolicy } from '../policy/policy-engine.js';
 import { linesFingerprint } from '../policy/anomaly.js';
 import { committedMinor, heldMinor, chargedMinor, LedgerError } from '../ledger/state-machine.js';
-import type { PaymentRecord, PaymentsRepository, ReceivedLine, DeliveryOutcome, NewPaymentEvent, ApprovedBy } from '../ledger/types.js';
+import type { PaymentRecord, PaymentsRepository, ReceivedLine, DeliveryOutcome, NewPaymentEvent, ApprovedBy, PaymentEventRecord, PaymentPatch } from '../ledger/types.js';
+import { LedgerConflictError } from '../ledger/memory-ledger.js';
 import type { PayPalClient } from './paypal-client.js';
 import { PayPalApiError, PayPalTransportError } from './paypal-client.js';
 import { createOrder, getOrder, authorizeOrder, firstAuthorization, captureAuthorization, voidAuthorization, reauthorize, getAuthorization } from './orders.js';
@@ -61,12 +62,37 @@ export interface PublicPayment {
   readonly releasedMinor: number;
   readonly refundedMinor: number;
   readonly reasons: readonly string[];
+  readonly approvedBy: PaymentRecord['approvedBy'];
+  /** PayPal honors the hold in full for 3 days; after that we reauthorize at capture time (never earlier). */
+  readonly honorPeriodEndsAt: string | null;
+  /** The hold itself lapses 29 days after it was placed. */
   readonly holdExpiresAt: string | null;
+  readonly createdAt: string;
+}
+
+/** A ledger event as tools may show it: no PayPal ids or request ids. */
+export interface PublicPaymentEvent {
+  readonly kind: PaymentEventRecord['kind'];
+  readonly amountMinor: number;
+  readonly actor: PaymentEventRecord['actor'];
+  readonly reason: string;
+  readonly at: string;
+}
+
+export interface SpendSummary {
+  readonly policy: SpendPolicy;
+  readonly configured: boolean;
+  readonly todayCommittedMinor: number;
+  readonly weekCommittedMinor: number;
+  readonly heldMinor: number;
+  readonly pendingApprovals: number;
+  readonly paypalConnected: boolean;
+  readonly payerLabel: string | null;
 }
 
 export interface PayResult {
   readonly payment: PublicPayment | null;
-  readonly policy: PolicyResult;
+  readonly policy: Pick<PolicyResult, 'decision' | 'reasons' | 'summary'>;
   /** Step-up only. Goes to the owner's approval card, never to the model. */
   readonly approval: { readonly token: string; readonly expiresAt: string } | null;
   readonly speech: string;
@@ -95,8 +121,15 @@ export function toPublicPayment(p: PaymentRecord): PublicPayment {
     releasedMinor: p.voidedMinor,
     refundedMinor: p.refundedMinor,
     reasons: p.decisionReasons.map((r) => r.text),
-    holdExpiresAt: p.authorizationExpiresAt
+    approvedBy: p.approvedBy,
+    honorPeriodEndsAt: p.honorPeriodEndsAt,
+    holdExpiresAt: p.authorizationExpiresAt,
+    createdAt: p.createdAt
   };
+}
+
+export function toPublicEvent(e: PaymentEventRecord): PublicPaymentEvent {
+  return { kind: e.kind, amountMinor: e.amountMinor, actor: e.actor, reason: e.reason, at: e.createdAt };
 }
 
 /** "maria.lopez@personal.example.com" -> "m***z@personal.example.com". */
@@ -193,6 +226,8 @@ export class PaymentsService {
    * pending approval; blocked records why and moves nothing.
    */
   async payForDraft(ctx: ServiceContext, draft: PolicyDraft, createdBy: 'agent' | 'owner'): Promise<PayResult> {
+    const existing = isUuid(draft.id) ? await ctx.repo.findPaymentByDraftId(draft.id) : null;
+    if (existing) return this.existingResult(ctx, existing);
     const policy = await this.evaluate(ctx, draft);
     const supplierName = draft.supplierName;
     if (draft.totalMinor <= 0 || draft.lines.length === 0) {
@@ -216,7 +251,17 @@ export class PaymentsService {
       const payment = await ctx.repo.createPayment({ ...base, status: 'blocked' }, evaluated);
       return { payment: toPublicPayment(payment), policy, approval: null, speech: policy.summary };
     }
-    const payment = await ctx.repo.createPayment({ ...base, status: 'pending_approval' }, evaluated);
+    let payment: PaymentRecord;
+    try {
+      payment = await ctx.repo.createPayment({ ...base, status: 'pending_approval' }, evaluated);
+    } catch (error) {
+      // A concurrent confirm of the same draft won the race: report its payment instead of paying twice.
+      if (error instanceof LedgerConflictError && error.code === 'draft_already_paid' && base.draftId) {
+        const winner = await ctx.repo.findPaymentByDraftId(base.draftId);
+        if (winner) return this.existingResult(ctx, winner);
+      }
+      throw error;
+    }
     if (policy.decision === 'step_up') {
       const approval = await this.requestApproval(ctx, payment);
       return { payment: toPublicPayment(await this.reload(ctx, payment.id)), policy, approval, speech: policy.summary };
@@ -228,6 +273,47 @@ export class PaymentsService {
       ? `${money(authorized.authorizedMinor, authorized.currency)} to ${supplierName} is held on your PayPal, not charged until delivery.`
       : `I couldn't place the hold with PayPal for ${supplierName}. Nothing was charged.`;
     return { payment: toPublicPayment(authorized), policy, approval: null, speech };
+  }
+
+  /** A draft that already has a payment: report it; a step-up still waiting gets a fresh approval token (the old one stops working). */
+  private async existingResult(ctx: ServiceContext, payment: PaymentRecord): Promise<PayResult> {
+    const policy = { decision: payment.decision, reasons: payment.decisionReasons, summary: payment.decisionReasons.map((r) => r.text).join(' ') };
+    const waiting = payment.status === 'pending_approval' && payment.decision === 'step_up' && !payment.approvedBy && !payment.paypalOrderId;
+    const approval = waiting ? await this.requestApproval(ctx, payment) : null;
+    const fresh = waiting ? await this.reload(ctx, payment.id) : payment;
+    return { payment: toPublicPayment(fresh), policy, approval, speech: `That order was already handled: ${describeStatus(fresh)}.` };
+  }
+
+  /**
+   * Fallback approval for clients without an in-client form: a one-off PayPal
+   * order the owner approves on PayPal's own page (phone QR or link). PayPal's
+   * login is the owner's step-up; no ShopVoice token is involved. Once PayPal
+   * reports the order approved, completeBuyerApproval places the hold.
+   */
+  async startPayPalApproval(ctx: ServiceContext, paymentId: string): Promise<{ approveUrl: string; payment: PublicPayment }> {
+    const payment = await this.mustGet(ctx, paymentId);
+    if (payment.status !== 'pending_approval' || payment.decision !== 'step_up' || payment.approvedBy) throw new PaymentFlowError('approval_not_found', 'That approval is not waiting anymore');
+    if (!payment.approvalExpiresAt || Date.parse(payment.approvalExpiresAt) <= this.now()) throw new PaymentFlowError('approval_expired', 'That approval expired; ask me to reorder again');
+    const name = ctx.supplierName(payment.supplierCode);
+    const recheck = await this.evaluate(ctx, this.draftOf(payment, name), payment.id);
+    if (recheck.decision === 'blocked') {
+      await ctx.repo.record(payment.id, { action: { kind: 'decline' }, patch: { approvalTokenHash: null, approvalExpiresAt: null }, event: { kind: 'declined', amountMinor: payment.requestedMinor, actor: 'system', reason: recheck.summary, correlationId: ctx.correlationId } });
+      throw new PaymentFlowError('blocked_on_recheck', recheck.summary);
+    }
+    const requestId = `svp-order-${payment.id}`;
+    const order = await createOrder(this.paypal, {
+      intent: 'AUTHORIZE',
+      purchaseUnit: this.purchaseUnit(payment, name),
+      paymentSource: { kind: 'paypal_approval', returnUrl: `${this.config.returnBaseUrl}/paypal/approved?payment=${payment.id}`, cancelUrl: `${this.config.returnBaseUrl}/paypal/cancelled?payment=${payment.id}`, brandName: this.config.brandName },
+      requestId,
+      correlationId: ctx.correlationId
+    });
+    const approveUrl = findLink(order.links, 'payer-action', 'approve');
+    if (!approveUrl) throw new PaymentFlowError('paypal_no_approve_link', 'PayPal did not return an approval link');
+    const updated = payment.paypalOrderId === order.id
+      ? payment
+      : await ctx.repo.record(payment.id, { patch: { paypalOrderId: order.id }, event: { kind: 'approval_requested', amountMinor: payment.requestedMinor, actor: 'system', reason: 'Waiting for the owner to approve in PayPal', paypalRequestId: requestId, correlationId: ctx.correlationId } });
+    return { approveUrl, payment: toPublicPayment(updated) };
   }
 
   private async requestApproval(ctx: ServiceContext, payment: PaymentRecord): Promise<{ token: string; expiresAt: string }> {
@@ -294,8 +380,17 @@ export class PaymentsService {
     const order = await getOrder(this.paypal, payment.paypalOrderId, ctx.correlationId);
     if (order.status !== 'APPROVED' && order.status !== 'COMPLETED') return toPublicPayment(payment);
     const requestId = `svp-authorize-${payment.id}`;
+    if (order.status === 'APPROVED') {
+      // Rules may have changed since the owner was asked: a block still blocks, even after PayPal approval.
+      const recheck = await this.evaluate(ctx, this.draftOf(payment, ctx.supplierName(payment.supplierCode)), payment.id);
+      if (recheck.decision === 'blocked') {
+        const declined = await ctx.repo.record(payment.id, { action: { kind: 'decline' }, patch: { approvalTokenHash: null, approvalExpiresAt: null }, event: { kind: 'declined', amountMinor: payment.requestedMinor, actor: 'system', reason: recheck.summary, correlationId: ctx.correlationId } });
+        return toPublicPayment(declined);
+      }
+    }
     const authorized = order.status === 'COMPLETED' ? order : await authorizeOrder(this.paypal, payment.paypalOrderId, requestId, ctx.correlationId);
-    return toPublicPayment(await this.recordAuthorization(ctx, payment, authorized, requestId, 'owner'));
+    const approvedBy = payment.approvedBy ? {} : { approvedBy: 'owner_paypal' as const };
+    return toPublicPayment(await this.recordAuthorization(ctx, payment, authorized, requestId, 'owner', { ...approvedBy, approvalTokenHash: null, approvalExpiresAt: null }));
   }
 
   private async authorizeFromVault(ctx: ServiceContext, payment: PaymentRecord, vaultId: string, actor: 'agent' | 'owner'): Promise<PaymentRecord> {
@@ -321,7 +416,7 @@ export class PaymentsService {
     }
   }
 
-  private async recordAuthorization(ctx: ServiceContext, payment: PaymentRecord, order: PayPalOrder, requestId: string, actor: 'agent' | 'owner'): Promise<PaymentRecord> {
+  private async recordAuthorization(ctx: ServiceContext, payment: PaymentRecord, order: PayPalOrder, requestId: string, actor: 'agent' | 'owner', extra: PaymentPatch = {}): Promise<PaymentRecord> {
     const auth = firstAuthorization(order);
     if (!auth || auth.status !== 'CREATED') {
       return ctx.repo.record(payment.id, { action: { kind: 'fail' }, event: { kind: 'failed', amountMinor: payment.requestedMinor, actor: 'paypal', reason: `PayPal returned no usable hold (${auth?.status ?? order.status})`, paypalRequestId: requestId, correlationId: ctx.correlationId } });
@@ -330,6 +425,7 @@ export class PaymentsService {
     return ctx.repo.record(payment.id, {
       action: { kind: 'authorize', amountMinor: payment.requestedMinor },
       patch: {
+        ...extra,
         paypalOrderId: order.id,
         paypalAuthorizationId: auth.id,
         ...(auth.expiration_time ? { authorizationExpiresAt: new Date(auth.expiration_time).toISOString() } : {}),
@@ -474,6 +570,74 @@ export class PaymentsService {
     return toPublicPayment(payment);
   }
 
+  // ---------- Read views for tools (no PayPal ids) ----------
+
+  async getPolicy(ctx: ServiceContext, currency: string): Promise<{ policy: SpendPolicy; configured: boolean }> {
+    const stored = await ctx.repo.getPolicy();
+    return { policy: stored ?? (await this.policy(ctx.repo, currency)), configured: !!stored };
+  }
+
+  async savePolicy(ctx: ServiceContext, policy: SpendPolicy): Promise<void> {
+    await ctx.repo.savePolicy(policy, 'owner');
+  }
+
+  async spendSummary(ctx: ServiceContext, currency: string): Promise<SpendSummary> {
+    const { policy, configured } = await this.getPolicy(ctx, currency);
+    const now = this.now();
+    const { dayStart, weekStart } = periodStarts(now, this.config.timeZone);
+    const recent = await ctx.repo.listPayments({ sinceIso: new Date(Math.min(weekStart, dayStart)).toISOString(), limit: 1000 });
+    const live = recent.filter((p) => p.status !== 'blocked' && p.status !== 'failed');
+    const sum = (since: number) => live.filter((p) => Date.parse(p.createdAt) >= since).reduce((n, p) => n + committedMinor(p), 0);
+    const all = await ctx.repo.listPayments({ limit: 1000 });
+    const method = await ctx.repo.getActivePaymentMethod();
+    return {
+      policy,
+      configured,
+      todayCommittedMinor: sum(dayStart),
+      weekCommittedMinor: sum(weekStart),
+      heldMinor: all.reduce((n, p) => n + heldMinor(p), 0),
+      pendingApprovals: all.filter((p) => p.status === 'pending_approval' && p.decision === 'step_up' && !p.approvedBy).length,
+      paypalConnected: !!method,
+      payerLabel: method?.payerLabel ?? null
+    };
+  }
+
+  async listPublicPayments(ctx: ServiceContext, limit: number): Promise<PublicPayment[]> {
+    return (await ctx.repo.listPayments({ limit })).map(toPublicPayment);
+  }
+
+  async explain(ctx: ServiceContext, paymentId: string): Promise<{ payment: PublicPayment; events: PublicPaymentEvent[] }> {
+    const payment = await this.mustGet(ctx, paymentId);
+    return { payment: toPublicPayment(payment), events: (await ctx.repo.listEvents(payment.id)).map(toPublicEvent) };
+  }
+
+  // ---------- Two-step confirmations (stateless) ----------
+
+  /**
+   * Signs a short-lived confirmation for a two-step tool (refunds). The
+   * signature binds the purpose and every field, so a token for one payment
+   * or amount cannot confirm another. Key derived from the master key.
+   */
+  signConfirmation(purpose: string, fields: readonly string[], ttlSeconds: number): string {
+    const exp = Math.floor(this.now() / 1000) + ttlSeconds;
+    return `${exp.toString(36)}.${this.confirmMac(purpose, fields, exp)}`;
+  }
+
+  verifyConfirmation(purpose: string, fields: readonly string[], signature: string): 'ok' | 'expired' | 'invalid' {
+    const [expText = '', mac = ''] = signature.split('.');
+    const exp = parseInt(expText, 36);
+    if (!Number.isSafeInteger(exp) || !/^[A-Za-z0-9_-]{32}$/.test(mac)) return 'invalid';
+    const expected = Buffer.from(this.confirmMac(purpose, fields, exp));
+    const given = Buffer.from(mac);
+    if (expected.length !== given.length || !timingSafeEqual(expected, given)) return 'invalid';
+    return exp * 1000 <= this.now() ? 'expired' : 'ok';
+  }
+
+  private confirmMac(purpose: string, fields: readonly string[], exp: number): string {
+    const key = createHash('sha256').update('svp-confirm|').update(Buffer.from(this.config.mekB64, 'base64')).digest();
+    return createHmac('sha256', key).update([purpose, ...fields, String(exp)].join('|')).digest('base64url').slice(0, 32);
+  }
+
   // ---------- helpers ----------
 
   private async policy(repo: PaymentsRepository, currency: string): Promise<SpendPolicy> {
@@ -521,6 +685,22 @@ export class PaymentsService {
 
   private unseal(sealed: Parameters<typeof decryptPayload>[0]): SealedMethod {
     return JSON.parse(decryptPayload(sealed, this.config.mekB64)) as SealedMethod;
+  }
+}
+
+/** "held $84", "charged $56", "waiting for your approval", ... for short spoken status lines. */
+export function describeStatus(p: PaymentRecord | PublicPayment): string {
+  const held = 'heldMinor' in p ? p.heldMinor : heldMinor(p);
+  const charged = 'chargedMinor' in p ? p.chargedMinor : chargedMinor(p);
+  switch (p.status) {
+    case 'pending_approval': return p.decision === 'step_up' ? 'waiting for your approval' : 'being placed with PayPal';
+    case 'authorized': return `${money(held, p.currency)} held, not charged yet`;
+    case 'partially_captured': return held > 0 ? `${money(charged, p.currency)} charged, ${money(held, p.currency)} still held` : `${money(charged, p.currency)} charged`;
+    case 'captured': return `${money(charged, p.currency)} charged`;
+    case 'voided': return 'released, nothing charged';
+    case 'refunded': return 'refunded';
+    case 'failed': return 'not placed, PayPal declined it';
+    case 'blocked': return 'blocked by your rules';
   }
 }
 

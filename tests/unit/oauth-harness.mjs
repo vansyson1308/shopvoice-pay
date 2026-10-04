@@ -10,6 +10,7 @@ import { MemoryOAuthStore } from '../../apps/mcp-server/dist/oauth/store.js';
 import { CimdResolver } from '../../apps/mcp-server/dist/oauth/cimd.js';
 import { buildSandboxTenantData, SANDBOX_PROFILES } from '../../scripts/gen_demo_seed.mjs';
 import { ANCHOR, TENANT_B, twoTenantDataset, silentLogger } from './mcp-harness.mjs';
+import { connectMockPayPal } from '../../apps/mcp-server/dist/payments-setup.js';
 
 export const BASE = 'https://shop.test';
 export const RESOURCE = `${BASE}/mcp`;
@@ -34,7 +35,7 @@ export function pkcePair() {
   return { verifier, challenge };
 }
 
-export async function startOAuthServer({ env = {}, cimdDocs = { [CC_CIMD]: CC_DOC }, clock } = {}) {
+export async function startOAuthServer({ env = {}, cimdDocs = { [CC_CIMD]: CC_DOC }, clock, payments = null } = {}) {
   const shopStore = new MemoryShopStore(twoTenantDataset(), clock);
   const cimdFetches = [];
   const cimd = new CimdResolver({
@@ -47,8 +48,9 @@ export async function startOAuthServer({ env = {}, cimdDocs = { [CC_CIMD]: CC_DO
     }
   });
   const oauthStore = new MemoryOAuthStore({
-    provision: (tenantId, locale) => {
+    provision: async (tenantId, locale) => {
       shopStore.addTenant(tenantId, buildSandboxTenantData(locale, ANCHOR));
+      if (payments) await connectMockPayPal(payments, shopStore, tenantId);
       return SANDBOX_PROFILES.en.shop_name;
     },
     remove: (tenantId) => shopStore.removeTenant(tenantId),
@@ -62,7 +64,7 @@ export async function startOAuthServer({ env = {}, cimdDocs = { [CC_CIMD]: CC_DO
     OAUTH_COOKIE_SECRET: 'test-cookie-secret-0123456789abcdef0123456789',
     ...env
   });
-  const handler = createMcpHttpHandler({ store: shopStore, config, logger: silentLogger, oauth: { store: oauthStore, cimd } });
+  const handler = createMcpHttpHandler({ store: shopStore, config, logger: silentLogger, oauth: { store: oauthStore, cimd }, ...(clock ? { now: clock } : {}), ...(payments ? { payments: payments.service } : {}) });
   const server = createServer((req, res) => { void handler.handle(req, res); });
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   const { port } = server.address();
@@ -70,6 +72,7 @@ export async function startOAuthServer({ env = {}, cimdDocs = { [CC_CIMD]: CC_DO
     url: `http://127.0.0.1:${port}`,
     shopStore,
     oauthStore,
+    payments,
     cimdFetches,
     handler,
     async close() {

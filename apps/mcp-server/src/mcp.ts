@@ -2,8 +2,12 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { Logger } from '../../../packages/common/dist/index.js';
 import type { ShopStore } from './store.js';
 import { ShopDataError } from './store.js';
-import { ALL_TOOLS } from './tools.js';
-import type { ToolContext, ToolDefinition } from './tools.js';
+import { ALL_TOOLS } from './tool-catalog.js';
+import type { ApprovalChannel, ClientAnswer, ToolContext, ToolDefinition } from './tools.js';
+import { autoCommitRepository } from './auto-commit.js';
+import type { PaymentsService } from './payments/service.js';
+import type { ShopRepository } from './store.js';
+import { randomUUID } from 'node:crypto';
 import { countWords, fitSpeech, MAX_SPOKEN_WORDS } from './speech.js';
 import { toMarkdown } from './markdown.js';
 import type { z } from 'zod';
@@ -20,6 +24,10 @@ export interface McpFactoryOptions {
   readonly tenantId: string;
   readonly logger: Logger;
   readonly confirmTtlSeconds: number;
+  /** Absent: tools that pay say payments are not set up. */
+  readonly payments?: PaymentsService | null;
+  /** How long to wait for the owner's answer in the client's confirmation form. */
+  readonly elicitationTimeoutMs?: number;
   readonly onToolLatency?: (tool: string, latencyMs: number, outcome: 'ok' | 'error') => void;
 }
 
@@ -57,9 +65,9 @@ function defaultRedact(args: Record<string, unknown>): Record<string, unknown> {
   return out;
 }
 
-const VOICE_INSTRUCTIONS = 'ShopVoice answers a grocery shop owner by voice. Tool results include content[0].text: a short sentence meant to be spoken as-is. Reorders are two-step: create_reorder_draft, read the summary aloud, and call confirm_reorder only after the owner explicitly says yes.';
+const VOICE_INSTRUCTIONS = 'ShopVoice answers a grocery shop owner by voice. Tool results include content[0].text: a short sentence meant to be spoken as-is. Reorders are two-step: create_reorder_draft, read the summary aloud, and call confirm_reorder only after the owner explicitly says yes. Payments follow the owner\'s spending rules; anything over them waits for the owner\'s own approval in the ShopVoice console.';
 
-export const CHAT_INSTRUCTIONS = 'ShopVoice exposes one small grocery or convenience shop: stock levels, daily sales, supplier invoices and purchase-order drafts. Amounts are in the shop\'s display currency (the currency field; *_minor fields hold exact amounts in cents) and quantities are in each product\'s own unit. Reorders take two calls: create_reorder_draft records a draft and returns a confirmation_token valid for 5 minutes, and confirm_reorder marks the draft as a confirmed purchase order; no payment is ever made.';
+export const CHAT_INSTRUCTIONS = 'ShopVoice exposes one small grocery or convenience shop: stock levels, daily sales, supplier invoices, purchase-order drafts and supplier payments through PayPal. Amounts are in the shop\'s display currency (the currency field; *_minor fields hold exact amounts in cents) and quantities are in each product\'s own unit. Reorders take two calls: create_reorder_draft returns a confirmation_token valid for 5 minutes, and confirm_reorder confirms the drafts and pays each supplier within the owner\'s spending rules, asking the owner directly when a payment needs approval.';
 
 /** One McpServer per MCP session, bound to the tenant resolved from the bearer token. */
 export function createShopVoiceServer(opts: McpFactoryOptions): McpServer {
@@ -113,6 +121,40 @@ export function createShopVoiceServer(opts: McpFactoryOptions): McpServer {
   return server;
 }
 
+const APPROVE_SCHEMA = {
+  type: 'object' as const,
+  properties: { approve: { type: 'boolean' as const, title: 'Approve', description: 'Yes to approve, no to decline.', default: false } },
+  required: ['approve']
+};
+
+/** The approval channel for one tool call: the owner's console, or this MCP client via elicitation. */
+function approvalChannel(server: McpServer, opts: McpFactoryOptions, relatedRequestId: string | number): ApprovalChannel {
+  const kind = opts.profile === 'chat' ? 'client' : 'console';
+  const timeout = opts.elicitationTimeoutMs ?? 120_000;
+  const caps = () => server.server.getClientCapabilities()?.elicitation;
+  const ask = async (run: () => Promise<{ action: 'accept' | 'decline' | 'cancel'; content?: Record<string, unknown> | undefined }>, accepted: (content: Record<string, unknown> | undefined) => boolean): Promise<ClientAnswer> => {
+    try {
+      const result = await run();
+      if (result.action === 'accept') return accepted(result.content) ? 'accept' : 'decline';
+      return result.action;
+    } catch (error) {
+      opts.logger.warn('mcp_elicitation_failed', { error: error instanceof Error ? error.message : 'unknown' });
+      return 'unavailable';
+    }
+  };
+  return {
+    kind,
+    async confirm(message) {
+      if (kind !== 'client' || !caps()?.form) return 'unavailable';
+      return ask(() => server.server.elicitInput({ mode: 'form', message, requestedSchema: APPROVE_SCHEMA }, { relatedRequestId, timeout }), (c) => c?.approve === true);
+    },
+    async openUrl(message, url) {
+      if (kind !== 'client' || !caps()?.url) return 'unavailable';
+      return ask(() => server.server.elicitInput({ mode: 'url', message, url, elicitationId: randomUUID() }, { relatedRequestId, timeout }), () => true);
+    }
+  };
+}
+
 function registerTool(server: McpServer, tool: ToolDefinition<z.ZodRawShape, z.ZodRawShape>, opts: McpFactoryOptions): void {
   server.registerTool(tool.name, {
     title: tool.title,
@@ -120,22 +162,32 @@ function registerTool(server: McpServer, tool: ToolDefinition<z.ZodRawShape, z.Z
     inputSchema: tool.input,
     outputSchema: tool.output,
     annotations: { title: tool.title, ...tool.annotations }
-  }, async (rawArgs: Record<string, unknown>) => {
+  }, async (rawArgs: Record<string, unknown>, extra: { requestId: string | number }) => {
     const started = performance.now();
     const args = rawArgs as z.infer<z.ZodObject<z.ZodRawShape>>;
     const redacted = tool.redact ? tool.redact(args) : defaultRedact(rawArgs);
     try {
-      const outcome = await opts.store.withTenant(opts.tenantId, async (repo) => {
+      const correlationId = randomUUID();
+      const run = async (repo: ShopRepository) => {
         const profile = await repo.getProfile();
+        const suppliers = opts.payments ? new Map((await repo.listSuppliers()).map((s) => [s.code, s.name])) : new Map<string, string>();
         const ctx: ToolContext = {
           repo,
           profile,
           today: await repo.today(),
           money: { currency: profile.displayCurrency, minorPerUnit: profile.minorPerUnit },
-          confirmTtlSeconds: opts.confirmTtlSeconds
+          confirmTtlSeconds: opts.confirmTtlSeconds,
+          payments: opts.payments
+            ? { service: opts.payments, ctx: { repo: repo.payments, correlationId, supplierName: (code: string) => suppliers.get(code) ?? code } }
+            : null,
+          approvals: approvalChannel(server, opts, extra.requestId)
         };
         return tool.run(ctx, args);
-      });
+      };
+      // Session tools commit each repository call on its own (see ToolDefinition.session).
+      const outcome = tool.session
+        ? await run(autoCommitRepository(opts.store, opts.tenantId))
+        : await opts.store.withTenant(opts.tenantId, run);
       let speech = outcome.speech;
       if (countWords(speech) > MAX_SPOKEN_WORDS) {
         opts.logger.warn('mcp_speech_over_budget', { tool: tool.name, words: countWords(speech) });

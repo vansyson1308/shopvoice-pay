@@ -243,14 +243,20 @@ export class PgPaymentsRepository implements PaymentsRepository {
   }
 
   async createPayment(input: NewPayment, event: NewPaymentEvent): Promise<PaymentRecord> {
-    const { rows } = await this.client.query(
-      `INSERT INTO supplier_payments (tenant_id, draft_id, supplier_code, currency, amount_requested_minor, status, decision,
-              decision_reasons, lines_fingerprint, lines, created_by, correlation_id)
-       VALUES (_rls_tenant_id(), $1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9::jsonb, $10, $11)
-       RETURNING ${PAYMENT_COLUMNS}`,
-      [input.draftId, input.supplierCode, input.currency, input.requestedMinor, input.status, input.decision,
-        JSON.stringify(input.decisionReasons), input.linesFingerprint, JSON.stringify(input.lines), input.createdBy, input.correlationId]
-    );
+    let rows: Row[];
+    try {
+      ({ rows } = await this.client.query(
+        `INSERT INTO supplier_payments (tenant_id, draft_id, supplier_code, currency, amount_requested_minor, status, decision,
+                decision_reasons, lines_fingerprint, lines, created_by, correlation_id)
+         VALUES (_rls_tenant_id(), $1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9::jsonb, $10, $11)
+         RETURNING ${PAYMENT_COLUMNS}`,
+        [input.draftId, input.supplierCode, input.currency, input.requestedMinor, input.status, input.decision,
+          JSON.stringify(input.decisionReasons), input.linesFingerprint, JSON.stringify(input.lines), input.createdBy, input.correlationId]
+      ));
+    } catch (error) {
+      if (isUniqueViolation(error, 'uq_supplier_payments_live_draft')) throw new LedgerConflictError('draft_already_paid', 'this draft already has a payment');
+      throw error;
+    }
     const payment = toPayment(rows[0] as Row);
     await this.insertEvent(payment, event);
     return payment;
@@ -273,6 +279,11 @@ export class PgPaymentsRepository implements PaymentsRepository {
 
   async findPaymentByApprovalHash(tokenHash: string): Promise<PaymentRecord | null> {
     const { rows } = await this.client.query(`SELECT ${PAYMENT_COLUMNS} FROM supplier_payments WHERE tenant_id = _rls_tenant_id() AND approval_token_hash = $1`, [tokenHash]);
+    return rows[0] ? toPayment(rows[0]) : null;
+  }
+
+  async findPaymentByDraftId(draftId: string): Promise<PaymentRecord | null> {
+    const { rows } = await this.client.query(`SELECT ${PAYMENT_COLUMNS} FROM supplier_payments WHERE tenant_id = _rls_tenant_id() AND draft_id = $1 AND status <> 'failed'`, [draftId]);
     return rows[0] ? toPayment(rows[0]) : null;
   }
 

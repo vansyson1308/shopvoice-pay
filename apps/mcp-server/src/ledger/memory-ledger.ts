@@ -92,7 +92,7 @@ export class MemoryPaymentsData {
 }
 
 export class LedgerConflictError extends Error {
-  constructor(readonly code: 'duplicate_request_id' | 'one_active_method' | 'not_found', message: string) {
+  constructor(readonly code: 'duplicate_request_id' | 'one_active_method' | 'not_found' | 'draft_already_paid', message: string) {
     super(message);
   }
 }
@@ -176,6 +176,9 @@ export class MemoryPaymentsRepository implements PaymentsRepository {
   }
 
   async createPayment(input: NewPayment, event: NewPaymentEvent): Promise<PaymentRecord> {
+    if (input.draftId && (await this.findPaymentByDraftId(input.draftId))) {
+      throw new LedgerConflictError('draft_already_paid', 'this draft already has a payment');
+    }
     const at = this.iso();
     const payment: PaymentRecord = {
       ...newPaymentState(input.requestedMinor, input.status),
@@ -218,6 +221,10 @@ export class MemoryPaymentsRepository implements PaymentsRepository {
 
   async findPaymentByApprovalHash(tokenHash: string): Promise<PaymentRecord | null> {
     return [...this.data.payments.values()].find((p) => p.approvalTokenHash === tokenHash) ?? null;
+  }
+
+  async findPaymentByDraftId(draftId: string): Promise<PaymentRecord | null> {
+    return [...this.data.payments.values()].find((p) => p.draftId === draftId && p.status !== 'failed') ?? null;
   }
 
   async findPaymentByAuthorizationId(authorizationId: string): Promise<PaymentRecord | null> {
