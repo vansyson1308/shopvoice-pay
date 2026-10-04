@@ -13,6 +13,7 @@ import type { SpeechClient } from './speech.js';
 import { McpToolbox } from './toolbox.js';
 import type { Toolbox } from './toolbox.js';
 import { newConversation, runTurn } from './agent.js';
+import { createOwnerRoutes } from './owner-routes.js';
 import type { Conversation } from './agent.js';
 
 export interface SimConfig {
@@ -31,6 +32,8 @@ export interface SimConfig {
   readonly anchorDate: string;
   readonly shopTimezone: string;
   readonly originVerifySecret: string;
+  /** The MCP server's owner API (console screens, PayPal returns). Derived from mcpUrl when unset. */
+  readonly ownerApiUrl: string;
 }
 
 export function loadSimConfig(env: Record<string, string | undefined>): SimConfig {
@@ -49,7 +52,8 @@ export function loadSimConfig(env: Record<string, string | undefined>): SimConfi
     turnsPerMinute: Number.parseInt(env.SIM_TURNS_PER_MINUTE ?? '30', 10) || 30,
     anchorDate: env.DEMO_ANCHOR_DATE ?? '',
     shopTimezone: env.SIM_SHOP_TIMEZONE ?? 'America/New_York',
-    originVerifySecret: env.ORIGIN_VERIFY_SECRET ?? ''
+    originVerifySecret: env.ORIGIN_VERIFY_SECRET ?? '',
+    ownerApiUrl: env.SIM_OWNER_API_URL ?? new URL('/owner/api', env.SIM_MCP_URL ?? 'http://127.0.0.1:8090/mcp').href
   };
 }
 
@@ -102,12 +106,19 @@ export interface SimDeps {
   readonly fallbackBrain: Brain;
   readonly speech: SpeechClient;
   readonly staticDir: string;
+  /** Test seam for the owner API calls. */
+  readonly fetch?: Parameters<typeof createOwnerRoutes>[2];
 }
 
 export function createSimHandler(deps: SimDeps) {
   const { config, logger, toolbox, speech } = deps;
   const conversations = new Map<string, Conversation>();
   const limiter = new InMemoryTokenBucketRateLimiter(config.turnsPerMinute, config.turnsPerMinute);
+  const owner = createOwnerRoutes({
+    ownerApiUrl: config.ownerApiUrl,
+    token: config.mcpToken,
+    ...(config.originVerifySecret ? { extraHeaders: { 'x-origin-verify': config.originVerifySecret } } : {})
+  }, logger, deps.fetch);
 
   function authorized(req: IncomingMessage): boolean {
     if (!config.accessCode) return true;
@@ -239,6 +250,7 @@ export function createSimHandler(deps: SimDeps) {
             });
             return;
           }
+          if (url.pathname.startsWith('/api/owner/')) return await owner.proxy(req, res, url);
           if (req.method === 'POST' && url.pathname === '/api/turn') return await handleTurn(req, res);
           if (req.method === 'POST' && url.pathname === '/api/tts') return await handleTts(req, res);
           if (req.method === 'POST' && url.pathname === '/api/reset') {
@@ -250,6 +262,7 @@ export function createSimHandler(deps: SimDeps) {
           send(res, 404, { error: 'not_found' });
           return;
         }
+        if (await owner.handlePublic(req, res, url)) return;
         if (req.method === 'GET' && (url.pathname === '/' || url.pathname.startsWith('/static/'))) {
           await serveStatic(res, url.pathname);
           return;

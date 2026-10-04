@@ -131,3 +131,20 @@ Database role names inside migrations 001–018 (`groceryclaw_app_runtime`, …)
 **Transactions.** Payment tools run as "session" tools: every repository call commits on its own (`auto-commit.ts`), still under RLS. So a PayPal hold and the ledger row that records it are durable together, and waiting for the owner never holds a database transaction open. Clients that declare elicitation get streamed (SSE) responses for their session, because a JSON response cannot carry a server-to-client request mid-call. Other clients keep plain JSON.
 
 **Idempotency.** One draft backs at most one live payment (unique index, migration 021). Confirming the same drafts again reports the existing payments. A step-up still waiting gets a fresh approval request; nothing is paid twice.
+
+## D11. The console's owner API is separate from MCP and closed to AI clients (2026-10-05)
+
+**Decision.** The console's screens (approvals, ledger, rules, suppliers, Connect PayPal, deliveries, refunds) use `/owner/api/*` on the MCP server, not MCP tools:
+- The browser calls the console. The console server forwards with its own server-side credential, which the browser never holds.
+- The owner API accepts only static (console) bearer tokens. It refuses OAuth tokens, which belong to third-party AI clients, and it refuses any request carrying a browser `Origin`.
+- No model sits on this path. A tap on the approval card approves by ledger id (`approved_by = owner_tap`), with the same rules re-check and expiry as every other approval path.
+
+**Webhooks.** `POST /webhooks/paypal`:
+1. verifies the signature with PayPal against the raw body, byte for byte;
+2. maps the event's `custom_id` (our payment id) to its tenant with a security-definer lookup that returns nothing else (migration 022);
+3. records `webhook_received` once per event id;
+4. calls `sync()`, which re-reads PayPal's state.
+
+Money state is never taken from the webhook payload, so a forged or replayed event cannot move it (tested).
+
+**Simulated PayPal (mock mode only).** With `PAYPAL_MODE=mock`, approval links point at the console's `/sim/paypal/*` page. Its banner says it is simulated and that no money moves. It redirects back only within the console. With `PAYPAL_MODE=sandbox`, the same links go to sandbox.paypal.com.

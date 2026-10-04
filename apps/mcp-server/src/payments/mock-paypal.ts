@@ -76,9 +76,21 @@ interface MockOrder {
   vaultId: string | null;
   authorizationIds: string[];
   captureIds: string[];
+  returnUrl: string | null;
+  cancelUrl: string | null;
+}
+
+function experienceUrls(source: Record<string, unknown> | undefined): { returnUrl: string | null; cancelUrl: string | null } {
+  const ctx = (source?.experience_context ?? {}) as Record<string, unknown>;
+  return {
+    returnUrl: typeof ctx.return_url === 'string' ? ctx.return_url : null,
+    cancelUrl: typeof ctx.cancel_url === 'string' ? ctx.cancel_url : null
+  };
 }
 
 interface MockSetupToken {
+  returnUrl: string | null;
+  cancelUrl: string | null;
   id: string;
   status: 'PAYER_ACTION_REQUIRED' | 'APPROVED' | 'VAULTED';
   customerId: string;
@@ -207,6 +219,21 @@ export class MockPayPal {
   /** Makes the next `times` calls (optionally only matching `path`) fail. */
   injectFault(status: number | 'network' | 'drop_response', times = 1, path?: RegExp): void {
     this.faults.push({ status, remaining: times, ...(path ? { path } : {}) });
+  }
+
+  /**
+   * What the simulated approval page shows (console, mock mode only): the
+   * amount and where PayPal would send the buyer back after Continue/Cancel.
+   */
+  approvalPage(kind: 'order' | 'setup', objectId: string): { amountMinor: number | null; currency: string | null; description: string; returnUrl: string | null; cancelUrl: string | null } | null {
+    if (kind === 'order') {
+      const order = this.orders.get(objectId);
+      if (!order) return null;
+      return { amountMinor: order.amountMinor, currency: order.currency, description: String(order.purchaseUnit.description ?? 'Order'), returnUrl: order.returnUrl, cancelUrl: order.cancelUrl };
+    }
+    const token = this.setupTokens.get(objectId);
+    if (!token) return null;
+    return { amountMinor: null, currency: null, description: 'Save PayPal for future supplier payments', returnUrl: token.returnUrl, cancelUrl: token.cancelUrl };
   }
 
   /** The buyer clicks "Continue" on the PayPal approval page. */
@@ -368,7 +395,8 @@ export class MockPayPal {
       purchaseUnit: unit,
       vaultId,
       authorizationIds: [],
-      captureIds: []
+      captureIds: [],
+      ...experienceUrls(source)
     };
     this.orders.set(order.id, order);
     // A vaulted (merchant-initiated) order completes in the create call. SPIKE §3.
@@ -490,7 +518,7 @@ export class MockPayPal {
     const paypal = (body.payment_source as Record<string, unknown> | undefined)?.paypal as Record<string, unknown> | undefined;
     if (!paypal) throw badRequest('MISSING_REQUIRED_PARAMETER', 'payment_source.paypal is required');
     if (paypal.usage_type !== 'MERCHANT') throw badRequest('INVALID_PARAMETER_VALUE', 'usage_type must be MERCHANT');
-    const token: MockSetupToken = { id: id('', 17), status: 'PAYER_ACTION_REQUIRED', customerId: id('', 10) };
+    const token: MockSetupToken = { id: id('', 17), status: 'PAYER_ACTION_REQUIRED', customerId: id('', 10), ...experienceUrls(paypal) };
     this.setupTokens.set(token.id, token);
     const links: PayPalLink[] = [
       { href: `${this.approveBaseUrl}/agreements/approve?approval_session_id=${token.id}`, rel: 'approve', method: 'GET' },

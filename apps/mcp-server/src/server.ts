@@ -12,6 +12,7 @@ import { MemoryOAuthStore } from './oauth/store.js';
 import type { Locale, OAuthStore } from './oauth/store.js';
 import { PgOAuthStore } from './oauth/pg-store.js';
 import { connectMockPayPal, loadPaymentsSetup } from './payments-setup.js';
+import { createOwnerApi } from './owner-api.js';
 import type { PaymentsSetup } from './payments-setup.js';
 
 const logger = createLogger({ service: 'mcp-server', level: (process.env.LOG_LEVEL ?? 'info') as LogLevel });
@@ -72,7 +73,8 @@ async function main(): Promise<void> {
   const config = loadMcpServerConfig(process.env);
   const payments = loadPaymentsSetup(process.env, logger);
   const { store, oauthStore } = await createStores(payments);
-  const deps: McpHttpDeps = { store, config, logger, payments: payments.service, ...(oauthStore ? { oauth: { store: oauthStore } } : {}) };
+  const owner = createOwnerApi({ store, payments, logger });
+  const deps: McpHttpDeps = { store, config, logger, payments: payments.service, owner, ...(oauthStore ? { oauth: { store: oauthStore } } : {}) };
   const handler = createMcpHttpHandler(deps);
   const server = createServer((req, res) => {
     void handler.handle(req, res);

@@ -124,6 +124,8 @@ export interface ShopStore {
   withTenant<T>(tenantId: string, work: (repo: ShopRepository) => Promise<T>): Promise<T>;
   /** Resolves a bearer token's SHA-256 hash to a tenant, outside tenant context. */
   resolveTokenHash(tokenHash: string): Promise<{ tenantId: string; tokenId: string } | null>;
+  /** The tenant that owns a ShopVoice payment id, outside tenant context (PayPal webhooks; migration 022). */
+  resolvePaymentTenant(paymentId: string): Promise<string | null>;
   ping(): Promise<boolean>;
   close(): Promise<void>;
 }

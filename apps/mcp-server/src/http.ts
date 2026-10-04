@@ -12,6 +12,7 @@ import type { ClientProfile } from './mcp.js';
 import type { McpServerConfig } from './config.js';
 import { ALL_TOOLS } from './tool-catalog.js';
 import type { PaymentsService } from './payments/service.js';
+import type { OwnerApi } from './owner-api.js';
 import { createOAuthServer } from './oauth/server.js';
 import type { OAuthServer } from './oauth/server.js';
 import type { OAuthStore } from './oauth/store.js';
@@ -64,6 +65,8 @@ export interface McpHttpDeps {
   readonly oauth?: { readonly store: OAuthStore; readonly cimd?: CimdResolver };
   /** Supplier payments; without it, payment tools report that payments are not set up. */
   readonly payments?: PaymentsService;
+  /** Console owner API (/owner/api/*, static tokens only) and the PayPal webhook (/webhooks/paypal). */
+  readonly owner?: OwnerApi;
 }
 
 /**
@@ -356,6 +359,39 @@ export function createMcpHttpHandler(deps: McpHttpDeps): McpHttpHandler {
     await transport.handleRequest(req, res, body);
   }
 
+  /**
+   * The console's own API. Only static bearer tokens (the console's
+   * server-side credential) are accepted: OAuth tokens belong to third-party
+   * AI clients, which must go through MCP tools and the owner's approval.
+   */
+  async function handleOwner(req: IncomingMessage, res: ServerResponse, url: URL, owner: OwnerApi): Promise<void> {
+    if (header(req, 'origin')) {
+      sendJson(res, 403, { error: 'forbidden', message: 'The owner API is server-to-server only.' });
+      return;
+    }
+    const ip = clientIpFrom(req, config.trustProxy);
+    const auth = header(req, 'authorization') ?? '';
+    const token = /^Bearer\s+([A-Za-z0-9._~+/=-]{16,256})$/i.exec(auth.trim())?.[1] ?? '';
+    if (token.startsWith('svat_')) {
+      sendJson(res, 403, { error: 'forbidden', message: 'OAuth connections cannot use the owner API.' });
+      return;
+    }
+    const tenantId = token ? await resolveTenant(token) : null;
+    if (!tenantId) {
+      if (token && !authFailLimiter.consume(ip).allowed) {
+        sendJson(res, 429, { error: 'rate_limited' }, { 'retry-after': '60' });
+        return;
+      }
+      sendJson(res, 401, { error: 'unauthorized' });
+      return;
+    }
+    if (!tenantLimiter.consume(tenantId).allowed) {
+      sendJson(res, 429, { error: 'rate_limited' }, { 'retry-after': '10' });
+      return;
+    }
+    await owner.handle(req, res, url, tenantId);
+  }
+
   async function sweepIdleSessions(): Promise<number> {
     const cutoff = now() - config.sessionIdleSeconds * 1000;
     let closed = 0;
@@ -391,6 +427,14 @@ export function createMcpHttpHandler(deps: McpHttpDeps): McpHttpHandler {
         }
         if (url.pathname === config.mcpPath) {
           await handleMcp(req, res);
+          return;
+        }
+        if (deps.owner && url.pathname === '/webhooks/paypal' && req.method === 'POST') {
+          await deps.owner.handleWebhook(req, res);
+          return;
+        }
+        if (deps.owner && url.pathname.startsWith('/owner/api/')) {
+          await handleOwner(req, res, url, deps.owner);
           return;
         }
         sendJson(res, 404, { error: 'not_found' });

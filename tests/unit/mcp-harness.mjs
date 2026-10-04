@@ -6,6 +6,7 @@ import { createMcpHttpHandler } from '../../apps/mcp-server/dist/http.js';
 import { loadMcpServerConfig } from '../../apps/mcp-server/dist/config.js';
 import { MemoryShopStore } from '../../apps/mcp-server/dist/memory-store.js';
 import { loadPaymentsSetup, connectMockPayPal } from '../../apps/mcp-server/dist/payments-setup.js';
+import { createOwnerApi } from '../../apps/mcp-server/dist/owner-api.js';
 import { ElicitRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 import { buildDemoDataset, DEMO_TENANT_ID } from '../../scripts/gen_demo_seed.mjs';
 
@@ -38,11 +39,12 @@ export function mockPayments(clock = () => Date.parse(`${ANCHOR}T15:00:00Z`), en
   return loadPaymentsSetup({ PAYPAL_MODE: 'mock', APP_MEK_B64: TEST_MEK, CONSOLE_PUBLIC_URL: 'https://console.test', ...env }, silentLogger, clock);
 }
 
-export async function startMcpServer({ env = {}, store, clock, payments = null, connectTenants = [DEMO_TENANT_ID] } = {}) {
+export async function startMcpServer({ env = {}, store, clock, payments = null, connectTenants = [DEMO_TENANT_ID], resetDemo = null } = {}) {
   const config = loadMcpServerConfig({ MCP_DATA_BACKEND: 'memory', MCP_ALLOW_LOCALHOST_ORIGINS: 'false', MCP_ALLOWED_ORIGINS: 'https://sim.example', ...env });
   const shopStore = store ?? new MemoryShopStore(twoTenantDataset(), clock);
   if (payments) for (const tenantId of connectTenants) await connectMockPayPal(payments, shopStore, tenantId);
-  const handler = createMcpHttpHandler({ store: shopStore, config, logger: silentLogger, ...(payments ? { payments: payments.service } : {}) });
+  const owner = payments ? createOwnerApi({ store: shopStore, payments, logger: silentLogger, ...(resetDemo ? { resetDemo } : {}) }) : undefined;
+  const handler = createMcpHttpHandler({ store: shopStore, config, logger: silentLogger, ...(payments ? { payments: payments.service, owner } : {}) });
   const server = createServer((req, res) => { void handler.handle(req, res); });
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   const { port } = server.address();
