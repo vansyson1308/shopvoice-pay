@@ -4,6 +4,9 @@ import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypt
 import { readFile } from 'node:fs/promises';
 import { extname, join, normalize } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createRequire } from 'node:module';
+import { dirname } from 'node:path';
+import QRCode from 'qrcode';
 import { createLogger, InMemoryTokenBucketRateLimiter } from '../../../packages/common/dist/index.js';
 import type { LogLevel, Logger } from '../../../packages/common/dist/index.js';
 import { RulesBrain } from './brain.js';
@@ -95,6 +98,33 @@ function send(res: ServerResponse, status: number, body: unknown, headers: Recor
   if (res.headersSent) return;
   res.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store', ...SECURITY_HEADERS, ...headers });
   res.end(JSON.stringify(body));
+}
+
+/**
+ * The console page carries a fresh nonce: AG Grid injects its <style> elements
+ * with it, so style elements stay strict. AG Grid's templates also carry
+ * inline style attributes (sizes, CSS variables), which a nonce cannot cover;
+ * only those are allowed. Scripts remain same-origin only.
+ */
+export function pageCsp(nonce: string): string {
+  return `default-src 'self'; media-src 'self' blob:; img-src 'self' data:; style-src 'self' 'nonce-${nonce}'; style-src-elem 'self' 'nonce-${nonce}'; style-src-attr 'unsafe-inline'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'; form-action 'self'; base-uri 'none'`;
+}
+
+const requireFromHere = createRequire(import.meta.url);
+/** AG Grid Community (MIT) browser bundle, served from our own origin. The noStyle build: the Theming API injects the theme CSS with our nonce; the legacy theme CSS in the default build would be injected without it. */
+export function agGridBundlePath(): string {
+  return join(dirname(requireFromHere.resolve('ag-grid-community')), '..', 'ag-grid-community.min.noStyle.js');
+}
+
+/** QR codes only for PayPal's approval pages, or the console's own simulated PayPal page. */
+export function qrAllowed(target: string): boolean {
+  try {
+    const u = new URL(target, 'http://console.local');
+    if (u.origin === 'http://console.local') return u.pathname.startsWith('/sim/paypal/');
+    return u.protocol === 'https:' && (u.hostname === 'www.sandbox.paypal.com' || u.hostname === 'sandbox.paypal.com');
+  } catch {
+    return false;
+  }
 }
 
 async function readJson(req: IncomingMessage, max = 16_384): Promise<Record<string, unknown>> {
@@ -240,8 +270,23 @@ export function createSimHandler(deps: SimDeps) {
     return c;
   }
 
+  let gridBundle: Buffer | null = null;
+
   async function serveStatic(res: ServerResponse, path: string): Promise<void> {
-    const rel = path === '/' ? 'index.html' : path.replace(/^\/static\//, '');
+    if (path === '/static/vendor/ag-grid-community.min.js') {
+      gridBundle ??= await readFile(agGridBundlePath());
+      res.writeHead(200, { 'content-type': MIME['.js'] ?? 'text/javascript', 'cache-control': 'public, max-age=86400', ...SECURITY_HEADERS });
+      res.end(gridBundle);
+      return;
+    }
+    if (path === '/') {
+      const nonce = randomBytes(16).toString('base64');
+      const html = (await readFile(join(deps.staticDir, 'index.html'), 'utf8')).replaceAll('__CSP_NONCE__', nonce);
+      res.writeHead(200, { 'content-type': MIME['.html'] ?? 'text/html', 'cache-control': 'no-store', ...SECURITY_HEADERS, 'content-security-policy': pageCsp(nonce) });
+      res.end(html);
+      return;
+    }
+    const rel = path.replace(/^\/static\//, '');
     const file = normalize(join(deps.staticDir, rel));
     if (!file.startsWith(deps.staticDir) || rel.includes('\0')) {
       send(res, 404, { error: 'not_found' });
@@ -365,6 +410,17 @@ export function createSimHandler(deps: SimDeps) {
             return;
           }
           if (req.method === 'POST' && url.pathname === '/api/session') return await startSession(req, res);
+          if (req.method === 'GET' && url.pathname === '/api/qr') {
+            const target = url.searchParams.get('url') ?? '';
+            if (!qrAllowed(target) || target.length > 2000) {
+              send(res, 400, { error: 'unsupported_url' });
+              return;
+            }
+            const svg = await QRCode.toString(target, { type: 'svg', margin: 1, errorCorrectionLevel: 'M' });
+            res.writeHead(200, { 'content-type': 'image/svg+xml', 'cache-control': 'no-store', ...SECURITY_HEADERS });
+            res.end(svg);
+            return;
+          }
           const session = sessionFor(req);
           if (req.method === 'GET' && url.pathname === '/api/config') {
             send(res, 200, {

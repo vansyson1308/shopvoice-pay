@@ -646,7 +646,18 @@ export const recordDelivery = defineTool({
     if (!ctx.payments) return { speech: NOT_SET_UP, data: { status: 'no_open_order' as const, ...empty } };
     const bridge = ctx.payments;
     const names = await supplierNames(ctx.repo);
-    const open = await findPayment(bridge, names, args, (p) => (p.status === 'authorized' || p.status === 'partially_captured') && p.heldMinor > 0);
+    const isOpen = (p: PublicPayment) => (p.status === 'authorized' || p.status === 'partially_captured') && p.heldMinor > 0;
+    let open = await findPayment(bridge, names, args, isOpen);
+    if (!open && args.supplier && !args.payment_id) {
+      // "The milk came": match a product on an open order, not only the supplier's name.
+      for (const p of (await bridge.service.listPublicPayments(bridge.ctx, 200)).filter(isOpen)) {
+        const raw = await ctx.repo.payments.getPayment(p.paymentId);
+        if (raw?.lines.some((l) => lineMatches(l, args.supplier ?? ''))) {
+          open = p;
+          break;
+        }
+      }
+    }
     if (!open) {
       return { speech: args.supplier ? `I don't see an order from "${args.supplier}" waiting for delivery.` : "I don't see an order waiting for delivery.", data: { status: 'no_open_order' as const, ...empty } };
     }
