@@ -1,7 +1,11 @@
-// Approves a PayPal *sandbox* approval link (order payer-action or vault
-// setup-token approve) as the sandbox buyer, in headless Chromium. Used only
-// by the spike and the sandbox test suite so the money flow can run
-// unattended; the real product sends the owner to PayPal instead.
+// TEST-ONLY. Approves a PayPal *sandbox* approval link (order payer-action or
+// vault setup-token approve) as the sandbox buyer, in headless Chromium. Used
+// only by the spike and sandbox tests so the money flow can run unattended;
+// the product always sends the owner to PayPal (or asks them) instead.
+//
+// It refuses to run unless SHOPVOICE_TEST_ONLY_HEADLESS_APPROVAL=1 is set,
+// NODE_ENV is not production and the process is not on a hosting platform.
+// Nothing under apps/ or packages/ may import it (tests/unit/approver-gate).
 //
 // Credentials come from env (SPIKE_BUYER_EMAIL / SPIKE_BUYER_PASSWORD) and are
 // typed into PayPal's own sandbox login page, nowhere else. Refuses any URL
@@ -23,7 +27,17 @@ function proxyCaSpki() {
   return createHash('sha256').update(der).digest('base64');
 }
 
+export const TEST_FLAG = 'SHOPVOICE_TEST_ONLY_HEADLESS_APPROVAL';
+
+/** Throws unless headless approval was explicitly enabled for a test run. */
+export function assertHeadlessApprovalAllowed(env = process.env) {
+  if (env[TEST_FLAG] !== '1') throw new Error(`headless_approval_test_only: set ${TEST_FLAG}=1 for spike/sandbox test runs`);
+  if (env.NODE_ENV === 'production') throw new Error('headless_approval_test_only: refused in production');
+  if (env.RENDER || env.RENDER_SERVICE_ID || env.RAILWAY_ENVIRONMENT) throw new Error('headless_approval_test_only: refused on a hosting platform');
+}
+
 export async function approveInSandbox(url, { email, password, returnHost, log = () => {}, screenshotDir = null, timeoutMs = 120_000 }) {
+  assertHeadlessApprovalAllowed();
   const target = new URL(url);
   if (!/(^|\.)sandbox\.paypal\.com$/.test(target.hostname)) throw new Error(`approver_refuses_non_sandbox_url:${target.hostname}`);
   if (!email || !password) throw new Error('approver_needs_SPIKE_BUYER_EMAIL_and_SPIKE_BUYER_PASSWORD');
