@@ -3,7 +3,7 @@
 // rules: confirmation tokens never enter the model context, and
 // confirm_reorder only runs when the owner said yes in this very turn.
 import type { Block, Brain, ChatMessage, ToolResultBlock, ToolSpec } from './brain.js';
-import { isAffirmative, isText, isToolUse } from './brain.js';
+import { isAffirmative, isText, isToolUse, NEGATIVE, AFFIRMATIVE } from './brain.js';
 import type { Toolbox } from './toolbox.js';
 
 export const MAX_TOOL_ROUNDS = 4;
@@ -25,11 +25,29 @@ export interface PendingConfirmation {
   readonly summary: Record<string, unknown>;
 }
 
+/** A payment the host just asked the owner about by voice; only the very next turn can answer it. */
+export interface AwaitingApproval {
+  readonly paymentId: string;
+  readonly supplierName: string;
+  readonly amount: string;
+}
+
 export interface Conversation {
   readonly id: string;
   messages: ChatMessage[];
   pending: PendingConfirmation | null;
+  awaitingApproval: AwaitingApproval | null;
   lastSeenMs: number;
+}
+
+/**
+ * The owner's approval channel for the console (owner API, the console's own
+ * credential). Called only by host code after a spoken yes/no it matched
+ * itself, never by the model.
+ */
+export interface VoiceApprover {
+  approve(paymentId: string): Promise<{ ok: boolean; speech: string; payment: Record<string, unknown> | null }>;
+  decline(paymentId: string): Promise<{ ok: boolean; speech: string; payment: Record<string, unknown> | null }>;
 }
 
 export interface TurnResult {
@@ -37,6 +55,8 @@ export interface TurnResult {
   readonly toolCalls: ToolTrace[];
   readonly confirmationCard: Record<string, unknown> | null;
   readonly orderResult: Record<string, unknown> | null;
+  /** Set when the host approved or declined a payment from a spoken yes/no. */
+  readonly approvalResult: { readonly decision: 'approved' | 'declined'; readonly ok: boolean; readonly payment: Record<string, unknown> | null } | null;
   readonly brain: { kind: string; model: string; latencyMs: number; rounds: number };
   readonly totalLatencyMs: number;
 }
@@ -53,7 +73,24 @@ export function systemPrompt(today: string): string {
 }
 
 export function newConversation(id: string, now: number): Conversation {
-  return { id, messages: [], pending: null, lastSeenMs: now };
+  return { id, messages: [], pending: null, awaitingApproval: null, lastSeenMs: now };
+}
+
+/** A plain spoken answer to the host's approval question; anything else is a new request. */
+export function approvalAnswer(text: string): 'yes' | 'no' | null {
+  const t = text.trim();
+  if (t.split(/\s+/).length > 8) return null;
+  if (isAffirmative(t) || /\bapprove( it)?\b/i.test(t) && !NEGATIVE.test(t)) return 'yes';
+  if (NEGATIVE.test(t) && !AFFIRMATIVE.test(t)) return 'no';
+  return null;
+}
+
+function waitingInConsole(structured: Record<string, unknown> | null): AwaitingApproval | null {
+  const payments = Array.isArray(structured?.payments) ? (structured?.payments as Record<string, unknown>[]) : [];
+  const waiting = payments.find((p) => (p.approval as Record<string, unknown> | undefined)?.state === 'waiting_in_console');
+  if (!waiting || typeof waiting.payment_id !== 'string') return null;
+  const amount = typeof waiting.amount === 'number' ? `$${waiting.amount.toLocaleString('en-US', { maximumFractionDigits: 2 })}` : 'the order';
+  return { paymentId: waiting.payment_id, supplierName: String(waiting.supplier_name ?? 'the supplier'), amount };
 }
 
 /** Trim history at user-text boundaries so toolUse/toolResult pairs stay intact. */
@@ -81,10 +118,33 @@ export async function runTurn(opts: {
   readonly toolbox: Toolbox;
   readonly today: string;
   readonly now: () => number;
+  readonly approver?: VoiceApprover;
 }): Promise<TurnResult> {
   const started = performance.now();
   const { conversation, brain, toolbox } = opts;
   const userText = opts.userText.trim().slice(0, 500);
+
+  // Step-up approval by voice: decided here, by host code, from the owner's own words.
+  const awaiting = conversation.awaitingApproval;
+  conversation.awaitingApproval = null;
+  const answer = awaiting && opts.approver ? approvalAnswer(userText) : null;
+  if (awaiting && opts.approver && answer) {
+    const outcome = answer === 'yes' ? await opts.approver.approve(awaiting.paymentId) : await opts.approver.decline(awaiting.paymentId);
+    conversation.messages.push({ role: 'user', content: [{ text: userText }] });
+    conversation.messages.push({ role: 'assistant', content: [{ text: outcome.speech }] });
+    conversation.messages = trimHistory(conversation.messages);
+    conversation.lastSeenMs = opts.now();
+    const name = answer === 'yes' ? 'approve_payment' : 'decline_payment';
+    return {
+      reply: outcome.speech,
+      toolCalls: [{ name, args: { payment_id: awaiting.paymentId }, latencyMs: 0, isError: !outcome.ok, spoken: outcome.speech, structured: outcome.payment, blockedByHost: 'Owner API (host): the spoken answer was matched by console code, not the model.' }],
+      confirmationCard: null,
+      orderResult: null,
+      approvalResult: { decision: answer === 'yes' ? 'approved' : 'declined', ok: outcome.ok, payment: outcome.payment },
+      brain: { kind: 'host', model: 'none', latencyMs: 0, rounds: 0 },
+      totalLatencyMs: Math.round(performance.now() - started)
+    };
+  }
   const affirmed = isAffirmative(userText);
   const tools: ToolSpec[] = await toolbox.listTools();
   const traces: ToolTrace[] = [];
@@ -131,11 +191,13 @@ export async function runTurn(opts: {
 
       if (name === 'create_reorder_draft' && structured?.status === 'draft_created' && typeof structured.confirmation_token === 'string') {
         conversation.pending = { token: structured.confirmation_token, expiresAt: String(structured.expires_at ?? ''), summary: redactStructured(structured) ?? {} };
+        conversation.awaitingApproval = null;
         confirmationCard = redactStructured(structured);
       }
       if (name === 'confirm_reorder' && structured) {
         orderResult = structured;
         if (structured.status !== 'expired') conversation.pending = null;
+        conversation.awaitingApproval = opts.approver ? waitingInConsole(structured) : null;
       }
 
       const content: ({ json: Record<string, unknown> } | { text: string })[] = [{ text: result.spoken }];
@@ -151,6 +213,8 @@ export async function runTurn(opts: {
     reply = traces[traces.length - 1]?.spoken ?? "Sorry, I didn't catch that.";
   }
   if (!/[.?!]$/.test(reply)) reply = `${reply}.`;
+  const ask = conversation.awaitingApproval;
+  if (ask) reply = `${reply} Say "yes" to approve ${ask.amount} to ${ask.supplierName}, or "no" to leave it unpaid.`;
   conversation.messages = trimHistory(conversation.messages);
   conversation.lastSeenMs = opts.now();
 
@@ -159,6 +223,7 @@ export async function runTurn(opts: {
     toolCalls: traces,
     confirmationCard,
     orderResult,
+    approvalResult: null,
     brain: { kind: brain.kind, model: brain.model, latencyMs: Math.round(brainLatency), rounds: rounds + 1 },
     totalLatencyMs: Math.round(performance.now() - started)
   };

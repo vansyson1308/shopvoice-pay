@@ -1,9 +1,7 @@
-// "Brain" = the LLM that plans tool calls. The contract mirrors the Amazon
-// Bedrock Converse API (messages + toolConfig -> content blocks + stopReason)
-// so the agent loop is identical for the real Bedrock brain and the offline
-// rules brain used in tests and when no AWS credentials are available.
-import { BedrockRuntimeClient, ConverseCommand } from '@aws-sdk/client-bedrock-runtime';
-import type { ContentBlock, Message, Tool } from '@aws-sdk/client-bedrock-runtime';
+// "Brain" = the model that plans tool calls. The history is Converse-shaped
+// ({text}, {toolUse}, {toolResult}) so the agent loop is identical for Claude
+// (claude-brain.ts, Bedrock or Anthropic API) and the offline rules brain used
+// in tests and when no model credentials are configured.
 
 export type TextBlock = { text: string };
 export type ToolUseBlock = { toolUse: { toolUseId: string; name: string; input: Record<string, unknown> } };
@@ -34,7 +32,7 @@ export interface BrainResponse {
 }
 
 export interface Brain {
-  readonly kind: 'bedrock' | 'rules';
+  readonly kind: 'claude' | 'rules';
   readonly model: string;
   converse(input: { system: string; messages: ChatMessage[]; tools: ToolSpec[] }): Promise<BrainResponse>;
 }
@@ -47,40 +45,10 @@ export function isText(block: Block): block is TextBlock {
   return typeof block === 'object' && block !== null && 'text' in block && typeof (block as TextBlock).text === 'string';
 }
 
-export class BedrockBrain implements Brain {
-  readonly kind = 'bedrock' as const;
-  private readonly client: BedrockRuntimeClient;
-
-  constructor(readonly model: string, region: string, private readonly maxTokens = 512) {
-    this.client = new BedrockRuntimeClient({ region });
-  }
-
-  async converse(input: { system: string; messages: ChatMessage[]; tools: ToolSpec[] }): Promise<BrainResponse> {
-    const started = performance.now();
-    const tools: Tool[] = input.tools.map((t) => ({
-      toolSpec: { name: t.name, description: t.description, inputSchema: { json: t.inputSchema as never } }
-    }));
-    const out = await this.client.send(new ConverseCommand({
-      modelId: this.model,
-      system: [{ text: input.system }],
-      messages: input.messages as unknown as Message[],
-      toolConfig: { tools },
-      inferenceConfig: { maxTokens: this.maxTokens, temperature: 0 }
-    }));
-    const content = (out.output?.message?.content ?? []) as ContentBlock[];
-    const stop = out.stopReason;
-    return {
-      content: content as unknown as Block[],
-      stopReason: stop === 'tool_use' ? 'tool_use' : stop === 'end_turn' ? 'end_turn' : stop === 'max_tokens' ? 'max_tokens' : 'other',
-      latencyMs: performance.now() - started
-    };
-  }
-}
-
 // ---------------------------------------------------------------------------
 // Offline rules brain: deterministic intent rules for demos without AWS
-// credentials and for CI. It only ever emits the same tool calls a Bedrock
-// model would, and then speaks the tool's own spoken text.
+// credentials and for CI. It only ever emits the same tool calls a model
+// would, and then speaks the tool's own spoken text.
 // ---------------------------------------------------------------------------
 
 const WEEKDAYS = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];

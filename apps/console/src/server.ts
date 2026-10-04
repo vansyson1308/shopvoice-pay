@@ -6,7 +6,8 @@ import { extname, join, normalize } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createLogger, InMemoryTokenBucketRateLimiter } from '../../../packages/common/dist/index.js';
 import type { LogLevel, Logger } from '../../../packages/common/dist/index.js';
-import { BedrockBrain, RulesBrain } from './brain.js';
+import { RulesBrain } from './brain.js';
+import { ClaudeBrain, claudeClientFromEnv } from './claude-brain.js';
 import type { Brain } from './brain.js';
 import { BrowserSpeech, PollySpeech } from './speech.js';
 import type { SpeechClient } from './speech.js';
@@ -14,15 +15,15 @@ import { McpToolbox } from './toolbox.js';
 import type { Toolbox } from './toolbox.js';
 import { newConversation, runTurn } from './agent.js';
 import { createOwnerRoutes } from './owner-routes.js';
-import type { Conversation } from './agent.js';
+import type { Conversation, VoiceApprover } from './agent.js';
 
 export interface SimConfig {
   readonly host: string;
   readonly port: number;
   readonly mcpUrl: string;
   readonly mcpToken: string;
-  readonly brain: 'bedrock' | 'rules';
-  readonly bedrockModelId: string;
+  /** rules (offline), claude-bedrock (Claude in Amazon Bedrock), claude-api (Anthropic API). */
+  readonly brain: 'claude-bedrock' | 'claude-api' | 'rules';
   readonly awsRegion: string;
   readonly tts: 'polly' | 'browser';
   readonly pollyVoice: string;
@@ -45,14 +46,19 @@ export interface SimConfig {
   readonly secureCookies: boolean;
 }
 
+function brainKind(value: string | undefined): SimConfig['brain'] {
+  if (value === 'claude-api') return 'claude-api';
+  if (value === 'claude-bedrock' || value === 'bedrock' || value === 'claude') return 'claude-bedrock';
+  return 'rules';
+}
+
 export function loadSimConfig(env: Record<string, string | undefined>): SimConfig {
   return {
     host: env.SIM_HOST ?? '0.0.0.0',
     port: Number.parseInt(env.SIM_PORT ?? '8091', 10),
     mcpUrl: env.SIM_MCP_URL ?? 'http://127.0.0.1:8090/mcp',
     mcpToken: env.SIM_MCP_TOKEN ?? env.MCP_DEMO_TOKEN ?? '',
-    brain: env.SIM_BRAIN === 'bedrock' ? 'bedrock' : 'rules',
-    bedrockModelId: env.BEDROCK_MODEL_ID ?? 'us.amazon.nova-2-lite-v1:0',
+    brain: brainKind(env.BRAIN ?? env.SIM_BRAIN),
     awsRegion: env.AWS_REGION ?? env.AWS_DEFAULT_REGION ?? 'us-east-1',
     tts: env.SIM_TTS === 'polly' ? 'polly' : 'browser',
     pollyVoice: env.POLLY_VOICE_ID ?? 'Joanna',
@@ -263,14 +269,27 @@ export function createSimHandler(deps: SimDeps) {
       return;
     }
     const conversation = conversationFor(session, body.conversationId);
-    const turn = { conversation, userText: text, toolbox: session.toolbox, today: shopToday(config), now: Date.now };
+    const approver: VoiceApprover = {
+      async approve(paymentId) {
+        const r = await owner.api(session.token, 'POST', `/approvals/${encodeURIComponent(paymentId)}/approve`, { via: 'voice' });
+        if (r.status !== 200) return { ok: false, speech: `I couldn't approve it: ${String(r.json.message ?? 'it is no longer waiting')}.`.replace(/\.\.$/, '.'), payment: null };
+        return { ok: true, speech: String(r.json.speech ?? 'Approved.'), payment: (r.json.payment ?? null) as Record<string, unknown> | null };
+      },
+      async decline(paymentId) {
+        const r = await owner.api(session.token, 'POST', `/approvals/${encodeURIComponent(paymentId)}/decline`, {});
+        const payment = (r.json.payment ?? null) as Record<string, unknown> | null;
+        if (r.status !== 200) return { ok: false, speech: `I couldn't change it: ${String(r.json.message ?? 'it is no longer waiting')}.`.replace(/\.\.$/, '.'), payment: null };
+        return { ok: true, speech: `Okay, I left the ${String(payment?.supplier_name ?? 'supplier')} order unpaid. Nothing was charged.`, payment };
+      }
+    };
+    const turn = { conversation, userText: text, toolbox: session.toolbox, today: shopToday(config), now: Date.now, approver };
     let result;
     let fallback = false;
     try {
       result = await runTurn({ ...turn, brain: deps.brain });
     } catch (error) {
       if (deps.brain.kind === 'rules') throw error;
-      // Bedrock unavailable (credentials, throttling): keep the demo alive with the offline brain.
+      // Claude unavailable (credentials, throttling): keep the demo alive with the offline brain (labelled in the reply).
       logger.warn('sim_brain_fallback', { error: error instanceof Error ? error.name : 'unknown' });
       conversation.messages = [];
       result = await runTurn({ ...turn, brain: deps.fallbackBrain });
@@ -408,7 +427,11 @@ async function main(): Promise<void> {
   const config = loadSimConfig(process.env);
   if (config.mcpToken.length < 16 && !config.demoProvisionSecret) throw new Error('SIM_MCP_TOKEN (the MCP bearer token for the demo tenant) or DEMO_PROVISION_SECRET (a shop per visitor) is required');
   const fallbackBrain = new RulesBrain();
-  const brain: Brain = config.brain === 'bedrock' ? new BedrockBrain(config.bedrockModelId, config.awsRegion) : fallbackBrain;
+  let brain: Brain = fallbackBrain;
+  if (config.brain !== 'rules') {
+    const { client, config: claude } = claudeClientFromEnv({ ...process.env, BRAIN: config.brain });
+    brain = new ClaudeBrain(client, claude);
+  }
   const speech: SpeechClient = config.tts === 'polly' ? new PollySpeech(config.pollyVoice, config.awsRegion, config.pollyEngine) : new BrowserSpeech();
   const toolbox = new McpToolbox(config.mcpUrl, config.mcpToken, config.originVerifySecret ? { 'x-origin-verify': config.originVerifySecret } : {});
   const staticDir = fileURLToPath(new URL('../static/', import.meta.url));
