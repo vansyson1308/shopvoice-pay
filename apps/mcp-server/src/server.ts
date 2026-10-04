@@ -11,6 +11,8 @@ import type { ShopStore } from './store.js';
 import { MemoryOAuthStore } from './oauth/store.js';
 import type { Locale, OAuthStore } from './oauth/store.js';
 import { PgOAuthStore } from './oauth/pg-store.js';
+import { connectMockPayPal, loadPaymentsSetup } from './payments-setup.js';
+import type { PaymentsSetup } from './payments-setup.js';
 
 const logger = createLogger({ service: 'mcp-server', level: (process.env.LOG_LEVEL ?? 'info') as LogLevel });
 
@@ -27,7 +29,7 @@ async function loadSeed(): Promise<DemoSeedModule> {
   return (await import(seedUrl.href)) as DemoSeedModule;
 }
 
-async function createStores(): Promise<{ store: ShopStore; oauthStore: OAuthStore | null }> {
+async function createStores(payments: PaymentsSetup): Promise<{ store: ShopStore; oauthStore: OAuthStore | null }> {
   const config = loadMcpServerConfig(process.env);
   const oauthEnabled = !!config.publicBaseUrl;
   if (config.dataBackend === 'memory') {
@@ -41,13 +43,15 @@ async function createStores(): Promise<{ store: ShopStore; oauthStore: OAuthStor
     }));
     const oauthStore = oauthEnabled
       ? new MemoryOAuthStore({
-        provision: (tenantId, locale) => {
+        provision: async (tenantId, locale) => {
           store.addTenant(tenantId, seed.buildSandboxTenantData(locale, process.env.DEMO_ANCHOR_DATE || undefined));
+          await connectMockPayPal(payments, store, tenantId).catch((error: unknown) => logger.warn('mock_paypal_connect_failed', { error: error instanceof Error ? error.message : 'unknown' }));
           return seed.SANDBOX_PROFILES.en.shop_name;
         },
         remove: (tenantId) => store.removeTenant(tenantId)
       })
       : null;
+    if (await connectMockPayPal(payments, store, seed.DEMO_TENANT_ID)) logger.info('mock_paypal_connected', { tenant_id: seed.DEMO_TENANT_ID });
     return { store, oauthStore };
   }
   const pool = await createPgPool({
@@ -58,13 +62,17 @@ async function createStores(): Promise<{ store: ShopStore; oauthStore: OAuthStor
   const oauthStore = oauthEnabled
     ? new PgOAuthStore(pool, { catalogue: (await loadSeed()).buildSandboxCatalogue(process.env), invitePepperB64: config.invitePepperB64 })
     : null;
-  return { store: new PgShopStore(pool), oauthStore };
+  const store = new PgShopStore(pool);
+  const seed = await loadSeed();
+  if (await connectMockPayPal(payments, store, seed.DEMO_TENANT_ID).catch(() => false)) logger.info('mock_paypal_connected', { tenant_id: seed.DEMO_TENANT_ID });
+  return { store, oauthStore };
 }
 
 async function main(): Promise<void> {
   const config = loadMcpServerConfig(process.env);
-  const { store, oauthStore } = await createStores();
-  const deps: McpHttpDeps = { store, config, logger, ...(oauthStore ? { oauth: { store: oauthStore } } : {}) };
+  const payments = loadPaymentsSetup(process.env, logger);
+  const { store, oauthStore } = await createStores(payments);
+  const deps: McpHttpDeps = { store, config, logger, payments: payments.service, ...(oauthStore ? { oauth: { store: oauthStore } } : {}) };
   const handler = createMcpHttpHandler(deps);
   const server = createServer((req, res) => {
     void handler.handle(req, res);

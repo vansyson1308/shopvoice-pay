@@ -132,13 +132,16 @@ const RENDERERS: Record<string, (d: Data, c: string) => string> = {
   },
   confirm_reorder(d, c) {
     const list = rows(d.drafts).map((x) => `- ${str(x.supplier_name)}: ${money(x.total, c)} (${str(x.status)})`).join('\n');
+    const pays = rows(d.payments);
+    const payments = pays.length === 0 ? '' : `\n\n**Payments**\n\n${paymentTable(pays, c)}${approvalNotes(pays)}`;
+    const paid = d.payments_enabled === true ? 'Each supplier is paid through PayPal within the owner\'s spending rules.' : 'No payment was made.';
     switch (d.status) {
       case 'confirmed':
-        return `**Confirmed ${num(d.confirmed_count)} purchase order(s), total ${money(d.total, c)}.** They are recorded in the shop's purchase orders; no payment was made.\n${list}`;
+        return `**Confirmed ${num(d.confirmed_count)} purchase order(s), total ${money(d.total, c)}.** ${paid}\n${list}${payments}`;
       case 'already_confirmed':
-        return `These orders were already confirmed; nothing changed.\n${list}`;
+        return `These orders were already confirmed; nothing was paid twice.\n${list}${payments}`;
       case 'expired':
-        return 'That draft expired (drafts are valid for 5 minutes), so nothing was ordered. Create a new draft with create_reorder_draft.';
+        return 'That draft expired (drafts are valid for 5 minutes), so nothing was ordered or paid. Create a new draft with create_reorder_draft.';
       default:
         return 'No draft matches that confirmation token. Create a new draft with create_reorder_draft.';
     }
@@ -148,14 +151,86 @@ const RENDERERS: Record<string, (d: Data, c: string) => string> = {
       '**Daily shop briefing**',
       `- Yesterday's sales: ${money(d.yesterday_revenue, c)} (${pct(d.yesterday_change_pct)} vs the same weekday last week)`,
       `- Products at or below minimum stock: ${num(d.low_stock_count)}${d.most_urgent ? ` (most urgent: ${str(d.most_urgent)})` : ''}`,
-      `- Supplier invoices not yet synced to the POS: ${num(d.invoices_pending_sync)}`
+      `- Supplier invoices not yet posted to inventory: ${num(d.invoices_pending_sync)}`
     ].join('\n');
+  },
+  get_payment_status(d, c) {
+    const pays = rows(d.payments);
+    if (pays.length === 0) return 'No supplier payments match.';
+    return `**Supplier payments**\n\n${paymentTable(pays, c)}\n\nHolds are valid 29 days; PayPal honors them in full for the first 3 (renewed at delivery if needed).`;
+  },
+  explain_payment(d, c) {
+    if (d.found !== true) return 'No supplier payment matches.';
+    const p = (d.payment ?? {}) as Row;
+    const reasons = (Array.isArray(p.reasons) ? p.reasons : []).map((r) => `- ${str(r)}`).join('\n');
+    const events = rows(d.events).map((e) => `| ${cell(str(e.at).slice(0, 16).replace('T', ' '))} | ${cell(e.kind)} | ${cell(money(e.amount, c))} | ${cell(e.actor)} | ${cell(e.reason)} |`).join('\n');
+    return `**${str(p.supplier_name)}, ${money(p.amount, c)}: ${str(p.status_text)}** (decision: ${str(p.decision)})\n\nWhy:\n${reasons}\n\n| When (UTC) | Event | Amount | By | Note |\n|---|---|---|---|---|\n${events}`;
+  },
+  get_spending_policy(d, c) {
+    const p = (d.policy ?? {}) as Row;
+    const cap = (v: unknown) => (v === null ? 'none' : money(v, c));
+    return [
+      `**Spending rules**${d.configured === true ? '' : ' (not set: nothing is paid until the owner sets them)'}`,
+      `- Auto-pay per order up to ${money(p.per_order_autopay_max, c)}; daily budget ${money(p.daily_budget, c)}; weekly budget ${money(p.weekly_budget, c)}`,
+      `- Hard caps (blocked even with approval): ${cap(p.daily_hard_cap)} a day, ${cap(p.weekly_hard_cap)} a week`,
+      `- Approved suppliers: ${rows(p.approved_suppliers).map((s) => str(s.supplier_name)).join(', ') || 'none'}`,
+      `- Ask the owner first when a price rises more than ${num(p.price_jump_pct)}% or a quantity is over ${num(p.quantity_spike_multiplier)}x the usual`,
+      `- PayPal: ${d.paypal_connected === true ? `connected (${str(d.paypal_account)})` : 'not connected'}`
+    ].join('\n');
+  },
+  get_spend_summary(d, c) {
+    return [
+      '**Supplier spend**',
+      `- Today: ${money(d.today_committed, c)} of ${money(d.daily_budget, c)}`,
+      `- This week: ${money(d.week_committed, c)} of ${money(d.weekly_budget, c)}`,
+      `- Held on PayPal awaiting delivery: ${money(d.held, c)}`,
+      `- Payments waiting for the owner's approval: ${num(d.pending_approvals)}`
+    ].join('\n');
+  },
+  request_refund(d, c) {
+    if (d.status === 'needs_confirmation') {
+      const p = (d.payment ?? {}) as Row;
+      return `**Refund ${money(d.amount, c)} from ${str(p.supplier_name)} to the owner's PayPal?** Not refunded yet: call request_refund again with this confirmation_token within 5 minutes.\n\nconfirmation_token: \`${str(d.confirmation_token)}\``;
+    }
+    return '';
   }
 };
+
+const PAYMENT_STATUS: Record<string, string> = {
+  pending_approval: 'Waiting for approval',
+  authorized: 'Held (not charged)',
+  partially_captured: 'Partly charged',
+  captured: 'Charged',
+  voided: 'Released',
+  refunded: 'Refunded',
+  failed: 'Not placed',
+  blocked: 'Blocked by rules'
+};
+
+function paymentTable(pays: Row[], c: string): string {
+  return table(['Supplier', 'Amount', 'Status', 'Held', 'Charged', 'Honor period ends', 'Hold expires'], pays.map((p) => [
+    str(p.supplier_name), money(p.amount, c), PAYMENT_STATUS[str(p.status)] ?? str(p.status),
+    money(p.held, c), money(p.charged, c),
+    str(p.honor_period_ends_at).slice(0, 10) || '–', str(p.hold_expires_at).slice(0, 10) || '–'
+  ]), pays.length);
+}
+
+function approvalNotes(pays: Row[]): string {
+  const notes = pays.map((p) => {
+    const a = (p.approval ?? {}) as Row;
+    if (a.state === 'waiting_in_paypal' && a.approval_url) return `- ${str(p.supplier_name)}: the owner approves on PayPal: ${str(a.approval_url)}`;
+    if (a.state === 'waiting_in_paypal') return `- ${str(p.supplier_name)}: waiting for the owner to approve on PayPal.`;
+    if (a.state === 'waiting_in_console') return `- ${str(p.supplier_name)}: waiting for the owner's approval in the ShopVoice console.`;
+    if (a.state === 'declined' || p.status === 'blocked') return `- ${str(p.supplier_name)}: not paid. ${str(a.note)}`;
+    if (a.state === 'approved') return `- ${str(p.supplier_name)}: approved by the owner.`;
+    return '';
+  }).filter(Boolean);
+  return notes.length ? `\n\n${notes.join('\n')}` : '';
+}
 
 export function toMarkdown(toolName: string, data: unknown, fallback: string): string {
   const render = RENDERERS[toolName];
   if (!render || !data || typeof data !== 'object') return fallback;
   const d = data as Data;
-  return render(d, str(d.currency) || 'USD');
+  return render(d, str(d.currency) || 'USD') || fallback;
 }

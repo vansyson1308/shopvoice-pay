@@ -15,6 +15,8 @@ export interface McpServerConfig {
   readonly maxBodyBytes: number;
   readonly tokenCacheSeconds: number;
   readonly jsonResponses: boolean;
+  /** How long a tool waits for the owner's answer in an MCP client's confirmation form. */
+  readonly elicitationTimeoutMs: number;
   /** When set, every request except /healthz must carry X-Origin-Verify with this value (added by CloudFront). */
   readonly originVerifySecret: string;
   /** Public origin (https://host) that serves /mcp, /.well-known/* and /oauth/*; empty disables OAuth. */
@@ -84,6 +86,7 @@ export function loadMcpServerConfig(env: Record<string, string | undefined>): Mc
     maxBodyBytes: int(env.MCP_MAX_BODY_BYTES, 262_144, 1024, 4_194_304),
     tokenCacheSeconds: int(env.MCP_TOKEN_CACHE_SECONDS, 30, 0, 3600),
     jsonResponses: bool(env.MCP_JSON_RESPONSES, true),
+    elicitationTimeoutMs: int(env.MCP_ELICITATION_TIMEOUT_MS, 120_000, 5_000, 600_000),
     originVerifySecret: env.ORIGIN_VERIFY_SECRET ?? '',
     publicBaseUrl,
     oauthCookieSecret: cookieSecret,

@@ -44,7 +44,8 @@ export async function startLocalStack() {
   const token = `sv_e2e_${randomBytes(24).toString('base64url')}`;
   const mcpPort = 18190 + Math.floor(Math.random() * 100);
   const simPort = mcpPort + 200;
-  const common = { ...process.env, LOG_LEVEL: 'warn', DEMO_ANCHOR_DATE: process.env.DEMO_ANCHOR_DATE ?? '2026-09-25' };
+  // The demo flow uses the mock PayPal unless E2E_PAYPAL_MODE=sandbox asks for the real sandbox.
+  const common = { ...process.env, LOG_LEVEL: 'warn', DEMO_ANCHOR_DATE: process.env.DEMO_ANCHOR_DATE ?? '2026-09-25', PAYPAL_MODE: process.env.E2E_PAYPAL_MODE ?? 'mock' };
   const mcp = spawn('node', ['apps/mcp-server/dist/server.js'], {
     env: { ...common, MCP_PORT: String(mcpPort), MCP_HOST: '127.0.0.1', MCP_DATA_BACKEND: 'memory', MCP_DEMO_TOKEN: token },
     stdio: ['ignore', 'ignore', 'inherit']
@@ -53,9 +54,15 @@ export async function startLocalStack() {
     env: { ...common, SIM_PORT: String(simPort), SIM_HOST: '127.0.0.1', SIM_MCP_URL: `http://127.0.0.1:${mcpPort}/mcp`, SIM_MCP_TOKEN: token, SIM_BRAIN: process.env.SIM_BRAIN ?? 'rules' },
     stdio: ['ignore', 'ignore', 'inherit']
   });
-  await waitFor(`http://127.0.0.1:${mcpPort}/healthz`);
-  await waitFor(`http://127.0.0.1:${simPort}/readyz`);
-  return { url: `http://127.0.0.1:${simPort}`, stop: () => { sim.kill('SIGTERM'); mcp.kill('SIGTERM'); } };
+  const stop = () => { sim.kill('SIGTERM'); mcp.kill('SIGTERM'); };
+  try {
+    await waitFor(`http://127.0.0.1:${mcpPort}/healthz`);
+    await waitFor(`http://127.0.0.1:${simPort}/readyz`);
+  } catch (error) {
+    stop();
+    throw error;
+  }
+  return { url: `http://127.0.0.1:${simPort}`, stop };
 }
 
 export async function runVoiceFlow(simUrl, { accessCode } = {}) {

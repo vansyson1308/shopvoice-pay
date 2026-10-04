@@ -3,11 +3,11 @@
 // groceryclaw_app_runtime, so every query goes through the RLS policies.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { createPgPool, closePool, query } from '../../packages/common/dist/index.js';
 import { PgShopStore } from '../../apps/mcp-server/dist/pg-store.js';
 import { startMcpServer, connectClient, spoken, wordCount } from '../unit/mcp-harness.mjs';
+import { runtimePool, applyDemoSeed } from './db-harness.mjs';
 import { DEMO_TENANT_ID, todayInTimezone } from '../../scripts/gen_demo_seed.mjs';
 
 const dbUrl = process.env.DATABASE_URL;
@@ -21,42 +21,10 @@ let admin;
 let srv;
 let client;
 
-/** Pool whose connections run as the RLS-bound runtime role. */
-function runtimePool(pool) {
-  const asRuntime = async () => {
-    const c = await pool.connect();
-    await c.query('SET ROLE groceryclaw_app_runtime');
-    return {
-      query: (text, params) => c.query(text, params),
-      release: () => {
-        c.query('RESET ROLE').finally(() => c.release());
-      }
-    };
-  };
-  return {
-    connect: asRuntime,
-    async query(text, params) {
-      const c = await asRuntime();
-      try {
-        return await c.query(text, params);
-      } finally {
-        c.release();
-      }
-    },
-    end: () => Promise.resolve()
-  };
-}
-
 test.before(async () => {
   if (skip) return;
   admin = await createPgPool({ connectionString: dbUrl, applicationName: 'mcp-db-tests', statementTimeoutMs: 30000 });
-  const seed = readFileSync('db/seed/002_demo_shop_seed.sql', 'utf8');
-  const c = await admin.connect();
-  try {
-    await c.query(`SET demo.anchor_date = '${todayInTimezone()}';\n${seed}`);
-  } finally {
-    c.release();
-  }
+  await applyDemoSeed(admin);
   await query(admin, "INSERT INTO tenants (id, name, status, processing_mode) VALUES ($1, 'DB Other Shop', 'active', 'v2') ON CONFLICT (id) DO NOTHING", [OTHER_TENANT]);
   await query(admin, "INSERT INTO shop_profiles (tenant_id, shop_name, display_currency) VALUES ($1, 'DB Other Shop', 'USD') ON CONFLICT (tenant_id) DO NOTHING", [OTHER_TENANT]);
   for (const [tenant, token] of [[DEMO_TENANT_ID, TOKEN_DEMO], [OTHER_TENANT, TOKEN_OTHER]]) {

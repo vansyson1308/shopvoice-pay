@@ -28,7 +28,8 @@ export interface StoredPaymentMethod {
 }
 
 export type PaymentDecision = 'autopay' | 'step_up' | 'blocked';
-export type ApprovedBy = 'owner_voice' | 'owner_tap' | 'owner_paypal';
+/** owner_elicitation: approved in the MCP client's own confirmation form (MCP elicitation), outside the model. */
+export type ApprovedBy = 'owner_voice' | 'owner_tap' | 'owner_paypal' | 'owner_elicitation';
 export type EventKind =
   | 'policy_evaluated' | 'approval_requested' | 'approved' | 'declined' | 'authorized' | 'reauthorized'
   | 'captured' | 'voided' | 'refunded' | 'payout_sent' | 'payout_completed' | 'failed' | 'webhook_received';
@@ -145,6 +146,8 @@ export interface PaymentsRepository {
   getPayment(id: string): Promise<PaymentRecord | null>;
   listPayments(opts?: { readonly sinceIso?: string; readonly limit?: number }): Promise<PaymentRecord[]>;
   findPaymentByApprovalHash(tokenHash: string): Promise<PaymentRecord | null>;
+  /** The draft's live payment (any status but 'failed'); at most one exists (migration 021). */
+  findPaymentByDraftId(draftId: string): Promise<PaymentRecord | null>;
   findPaymentByAuthorizationId(authorizationId: string): Promise<PaymentRecord | null>;
   /**
    * Atomically: re-reads the payment (locked), applies `action` through the

@@ -2,6 +2,33 @@
 
 Running log for ShopVoice Pay (PayPal AI Hackathon). Newest entry first. Times are Vietnam time (UTC+7).
 
+## 2026-10-05 (Mon, 02:30 VN): M2 started: guardrails, US seed, payments in the MCP tools
+
+**Done**
+- PR #6 (merged):
+  - headless sandbox approval is test-only, behind an explicit flag, and refused in production and on hosting platforms; a test proves it;
+  - DECISIONS D1 "Production path" covers multiparty onboarding and cites the sandbox errors `BILLING_AGREEMENT_NOT_FOUND` and 403 on void.
+- PR #7: **US demo seed**. "Maria's Corner Market (demo)", America/New_York, 47 generic products, 4 fictional suppliers (`@business.example.com` payees, overridable with `SANDBOX_SUPPLIER_EMAIL(S)`). All money is integer cents (migration 020). Hero numbers are pinned by tests: milk $84 (autopay) and eggs $142 at +31% (step-up).
+- Payments wired into the MCP tools:
+  - `confirm_reorder` now pays within the rules;
+  - new tools: `get_payment_status`, `record_delivery`, `request_refund` (two-step, signed token), `get_spend_summary`, `explain_payment`, `get_spending_policy`, `set_spending_policy`;
+  - approval ladder: console → MCP form elicitation → PayPal approval page (URL elicitation, else link) → decline with a reason (DECISIONS D10);
+  - money tools commit each ledger write on its own;
+  - migration 021: one live payment per draft, plus `owner_elicitation`.
+
+**Verified locally**
+- Unit: 210/210, including 11 payment-tool tests. Every tool result, elicitation request and audit entry is checked for approval tokens, the vault id and PayPal authorization/capture ids.
+- DB: 51/51 on a fresh Postgres 16 cluster, with migrate → rollback → migrate for 020 and 021.
+- Policy coverage: 100% lines, 98.55% branches.
+- `demo:e2e`: 5/5. The confirm turn now says "Valley Farm Eggs $142 needs your OK and Northside Dairy $84 held until delivery. Large eggs 30 ct is up 31%."
+
+**Simulated**
+- In `PAYPAL_MODE=mock`, demo shops get a simulated saved PayPal account at startup so auto-pay works at once. Sandbox mode needs the owner's own "Connect PayPal" (console, next PR).
+
+**Blocked on the owner**
+- Bedrock credentials (`BEDROCK_*`) or an Anthropic API key.
+- `SANDBOX_SUPPLIER_EMAILS` for the other three suppliers.
+
 ## 2026-10-05 (Mon, early VN): M1 money core complete
 
 **Done**

@@ -5,6 +5,8 @@ import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/
 import { createMcpHttpHandler } from '../../apps/mcp-server/dist/http.js';
 import { loadMcpServerConfig } from '../../apps/mcp-server/dist/config.js';
 import { MemoryShopStore } from '../../apps/mcp-server/dist/memory-store.js';
+import { loadPaymentsSetup, connectMockPayPal } from '../../apps/mcp-server/dist/payments-setup.js';
+import { ElicitRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 import { buildDemoDataset, DEMO_TENANT_ID } from '../../scripts/gen_demo_seed.mjs';
 
 export const ANCHOR = '2026-09-25'; // a Friday
@@ -29,16 +31,25 @@ export function twoTenantDataset() {
   return base;
 }
 
-export async function startMcpServer({ env = {}, store, clock } = {}) {
+export const TEST_MEK = Buffer.alloc(32, 9).toString('base64');
+
+/** Mock PayPal + PaymentsService on the given clock (align it with the dataset's anchor date). */
+export function mockPayments(clock = () => Date.parse(`${ANCHOR}T15:00:00Z`), env = {}) {
+  return loadPaymentsSetup({ PAYPAL_MODE: 'mock', APP_MEK_B64: TEST_MEK, CONSOLE_PUBLIC_URL: 'https://console.test', ...env }, silentLogger, clock);
+}
+
+export async function startMcpServer({ env = {}, store, clock, payments = null, connectTenants = [DEMO_TENANT_ID] } = {}) {
   const config = loadMcpServerConfig({ MCP_DATA_BACKEND: 'memory', MCP_ALLOW_LOCALHOST_ORIGINS: 'false', MCP_ALLOWED_ORIGINS: 'https://sim.example', ...env });
   const shopStore = store ?? new MemoryShopStore(twoTenantDataset(), clock);
-  const handler = createMcpHttpHandler({ store: shopStore, config, logger: silentLogger });
+  if (payments) for (const tenantId of connectTenants) await connectMockPayPal(payments, shopStore, tenantId);
+  const handler = createMcpHttpHandler({ store: shopStore, config, logger: silentLogger, ...(payments ? { payments: payments.service } : {}) });
   const server = createServer((req, res) => { void handler.handle(req, res); });
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   const { port } = server.address();
   return {
     url: `http://127.0.0.1:${port}`,
     store: shopStore,
+    payments,
     handler,
     async close() {
       await handler.close();
@@ -47,8 +58,13 @@ export async function startMcpServer({ env = {}, store, clock } = {}) {
   };
 }
 
-export async function connectClient(baseUrl, token = TOKEN_A) {
-  const client = new Client({ name: 'shopvoice-test', version: '1.0.0' });
+/**
+ * capabilities: e.g. { elicitation: { form: {}, url: {} } }. onElicit(params)
+ * answers elicitation requests ({ action, content }) and records them.
+ */
+export async function connectClient(baseUrl, token = TOKEN_A, { capabilities, onElicit } = {}) {
+  const client = new Client({ name: 'shopvoice-test', version: '1.0.0' }, capabilities ? { capabilities } : undefined);
+  if (onElicit) client.setRequestHandler(ElicitRequestSchema, async (request) => onElicit(request.params));
   const transport = new StreamableHTTPClientTransport(new URL('/mcp', baseUrl), {
     requestInit: { headers: { authorization: `Bearer ${token}` } }
   });
