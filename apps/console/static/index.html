@@ -3,84 +3,177 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>ShopVoice Simulator</title>
-  <meta name="description" content="Voice assistant simulator for the ShopVoice MCP server: push-to-talk, Bedrock tool-use agent, Polly speech.">
+  <meta name="csp-nonce" content="__CSP_NONCE__">
+  <title>ShopVoice Pay console</title>
+  <meta name="description" content="Voice-first purchasing agent for independent grocers: pays suppliers through PayPal, only within the owner's rules.">
   <link rel="stylesheet" href="/static/styles.css">
   <link rel="icon" href="/static/icon.svg" type="image/svg+xml">
 </head>
 <body>
+  <a class="skip" href="#main">Skip to content</a>
   <header class="topbar">
     <div class="brand">
       <img src="/static/icon.svg" alt="" width="28" height="28">
       <div>
-        <h1>ShopVoice</h1>
-        <p class="sub">Voice assistant simulator for an MCP-powered shop · <span id="shop-name">Corner Mart Demo</span></p>
+        <h1>ShopVoice Pay</h1>
+        <p class="sub"><span id="shop-name">Your shop</span> · <span id="shop-today"></span></p>
       </div>
     </div>
     <div class="chips" aria-label="Runtime status">
-      <span class="chip" id="chip-mcp" title="MCP Streamable HTTP">MCP …</span>
+      <span class="chip" id="chip-paypal" title="PayPal connection">PayPal …</span>
       <span class="chip" id="chip-brain" title="Agent model">Brain …</span>
-      <span class="chip" id="chip-voice" title="Text to speech">Voice …</span>
+      <span class="chip" id="chip-mcp" title="MCP Streamable HTTP">MCP …</span>
+      <button class="btn ghost small" id="btn-reset-demo" type="button" hidden>Reset demo</button>
     </div>
   </header>
 
-  <main class="layout">
-    <section class="device" aria-label="Smart display">
-      <div class="screen" id="screen" data-state="idle">
-        <div class="lightbar" aria-hidden="true"></div>
-        <p class="state-label" id="state-label">Hold the button or press Space, then speak</p>
-        <p class="heard" id="heard" aria-live="polite"></p>
-        <p class="reply" id="reply" aria-live="polite">Hi! Ask me what's running low, how sales are going, or to reorder something.</p>
+  <p class="honesty" id="honesty" role="note"></p>
 
-        <div class="card confirm" id="confirm-card" hidden>
-          <div class="card-head">
-            <span class="badge">Reorder draft</span>
-            <span class="timer" id="confirm-timer">5:00</span>
+  <nav class="tabs" role="tablist" aria-label="Console sections">
+    <button role="tab" id="tab-talk" aria-controls="panel-talk" aria-selected="true">Talk</button>
+    <button role="tab" id="tab-approvals" aria-controls="panel-approvals" aria-selected="false" tabindex="-1">Approvals <span class="count" id="approvals-count" hidden>0</span></button>
+    <button role="tab" id="tab-ledger" aria-controls="panel-ledger" aria-selected="false" tabindex="-1">Ledger</button>
+    <button role="tab" id="tab-policy" aria-controls="panel-policy" aria-selected="false" tabindex="-1">Rules &amp; PayPal</button>
+    <button role="tab" id="tab-suppliers" aria-controls="panel-suppliers" aria-selected="false" tabindex="-1">Suppliers</button>
+  </nav>
+
+  <main id="main">
+    <section class="landing" id="landing" hidden aria-labelledby="landing-title">
+      <h2 id="landing-title">Talk to your shop. It pays suppliers only within your rules.</h2>
+      <ul>
+        <li>Ask what's running low and reorder by voice.</li>
+        <li>Orders within your rules are <strong>held</strong> on PayPal and charged only for what arrives.</li>
+        <li>Anything over your rules waits for <strong>your</strong> approval. The AI can propose, never pay.</li>
+      </ul>
+      <button class="btn primary big" id="btn-start" type="button">Try the demo</button>
+      <p class="muted">You get your own sample shop (fictional US corner store, four fictional suppliers). Nothing here is a real business or real money.</p>
+    </section>
+
+    <section role="tabpanel" id="panel-talk" aria-labelledby="tab-talk" class="panel-talk">
+      <div class="layout">
+        <section class="device" aria-label="Voice assistant">
+          <div class="screen" id="screen" data-state="idle">
+            <div class="lightbar" aria-hidden="true"></div>
+            <p class="state-label" id="state-label">Hold the button or press Space, then speak</p>
+            <p class="heard" id="heard" aria-live="polite"></p>
+            <p class="reply" id="reply" aria-live="polite">Hi! Ask what's running low, or say "reorder milk and eggs".</p>
+
+            <div class="card confirm" id="confirm-card" hidden>
+              <div class="card-head"><span class="badge">Reorder draft</span><span class="timer" id="confirm-timer">5:00</span></div>
+              <div id="confirm-body"></div>
+              <div class="card-actions">
+                <button class="btn ghost" id="btn-cancel" type="button">No, cancel</button>
+                <button class="btn primary" id="btn-confirm" type="button">Yes, confirm</button>
+              </div>
+            </div>
+
+            <div class="card done" id="done-card" hidden>
+              <div class="card-head"><span class="badge ok">Orders confirmed</span></div>
+              <div id="done-body"></div>
+            </div>
           </div>
-          <div id="confirm-body"></div>
-          <div class="card-actions">
-            <button class="btn ghost" id="btn-cancel" type="button">No, cancel</button>
-            <button class="btn primary" id="btn-confirm" type="button">Yes, confirm</button>
+
+          <div class="controls">
+            <button class="mic" id="mic" type="button" aria-label="Push to talk">
+              <svg viewBox="0 0 24 24" width="30" height="30" aria-hidden="true"><path fill="currentColor" d="M12 15a3 3 0 0 0 3-3V6a3 3 0 1 0-6 0v6a3 3 0 0 0 3 3Zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.93V21h2v-2.07A7 7 0 0 0 19 12h-2Z"/></svg>
+            </button>
+            <form id="text-form" class="text-form" autocomplete="off">
+              <input id="text-input" type="text" placeholder="…or type what you'd say" aria-label="What you'd say">
+              <button class="btn" type="submit">Say</button>
+            </form>
           </div>
-        </div>
 
-        <div class="card done" id="done-card" hidden>
-          <div class="card-head"><span class="badge ok">Order confirmed</span></div>
-          <div id="done-body"></div>
-        </div>
-      </div>
+          <div class="suggestions" aria-label="Try saying">
+            <button type="button" class="suggest">What's running low?</button>
+            <button type="button" class="suggest">Reorder milk and eggs</button>
+            <button type="button" class="suggest">Yes, confirm</button>
+            <button type="button" class="suggest">Yes, approve it</button>
+            <button type="button" class="suggest">Only 8 crates of milk came</button>
+            <button type="button" class="suggest">Why did the egg order need my OK?</button>
+            <button type="button" class="suggest">How much have I spent on suppliers this week?</button>
+          </div>
+        </section>
 
-      <div class="controls">
-        <button class="mic" id="mic" type="button" aria-label="Push to talk">
-          <svg viewBox="0 0 24 24" width="30" height="30" aria-hidden="true"><path fill="currentColor" d="M12 15a3 3 0 0 0 3-3V6a3 3 0 1 0-6 0v6a3 3 0 0 0 3 3Zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.93V21h2v-2.07A7 7 0 0 0 19 12h-2Z"/></svg>
-        </button>
-        <form id="text-form" class="text-form" autocomplete="off">
-          <input id="text-input" type="text" placeholder="…or type what you'd say" aria-label="Utterance">
-          <button class="btn" type="submit">Say</button>
-        </form>
-      </div>
-
-      <div class="suggestions" aria-label="Try saying">
-        <button type="button" class="suggest">What's running low?</button>
-        <button type="button" class="suggest">How were sales today compared to last Friday?</button>
-        <button type="button" class="suggest">Reorder milk and eggs</button>
-        <button type="button" class="suggest">Yes, confirm</button>
-        <button type="button" class="suggest">Did the Harbor Wholesale invoice arrive?</button>
+        <aside class="panel" aria-label="Tool calls">
+          <div class="panel-head">
+            <h2>MCP tool calls</h2>
+            <button class="btn ghost small" id="btn-reset" type="button">New conversation</button>
+          </div>
+          <p class="panel-sub">Every call goes over Streamable HTTP to the ShopVoice MCP server, scoped to this shop. Payments are decided by the server's rules engine, not the model.</p>
+          <ol class="calls" id="calls"></ol>
+          <p class="empty" id="calls-empty">No tool calls yet.</p>
+        </aside>
       </div>
     </section>
 
-    <aside class="panel" aria-label="Tool calls">
-      <div class="panel-head">
-        <h2>MCP tool calls</h2>
-        <button class="btn ghost small" id="btn-reset" type="button">New conversation</button>
+    <section role="tabpanel" id="panel-approvals" aria-labelledby="tab-approvals" hidden>
+      <div class="section-head">
+        <h2>Waiting for your approval</h2>
+        <p class="muted">These orders are over your rules, so nothing is held or charged until you decide. Approving puts a hold on PayPal; you are charged only for what is delivered.</p>
       </div>
-      <p class="panel-sub">Every call goes over Streamable HTTP to the ShopVoice MCP server, scoped to this shop's tenant.</p>
-      <ol class="calls" id="calls"></ol>
-      <p class="empty" id="calls-empty">No tool calls yet.</p>
-    </aside>
+      <div id="approvals-list" class="cards"></div>
+      <p class="empty" id="approvals-empty">Nothing is waiting for you.</p>
+    </section>
+
+    <section role="tabpanel" id="panel-ledger" aria-labelledby="tab-ledger" hidden>
+      <div class="section-head row">
+        <div>
+          <h2>Payment ledger</h2>
+          <p class="muted">Holds are honored in full for 3 days ("honor period ends"); a hold expires after 29 days. ShopVoice renews a hold only when it captures after the honor period, never early.</p>
+        </div>
+        <div class="actions">
+          <button class="btn ghost small" id="btn-ledger-refresh" type="button">Refresh</button>
+          <button class="btn small" id="btn-ledger-csv" type="button">Export CSV</button>
+        </div>
+      </div>
+      <div id="ledger-grid" class="grid" role="region" aria-label="Payment ledger table"></div>
+    </section>
+
+    <section role="tabpanel" id="panel-policy" aria-labelledby="tab-policy" hidden>
+      <div class="two-col">
+        <form id="policy-form" class="form-card" novalidate>
+          <h2>Spending rules</h2>
+          <p class="muted">Enforced by ShopVoice's server, not the AI. Over a limit, the order waits for you; over a hard cap or to a supplier not approved, it is blocked even with approval.</p>
+          <div class="fields">
+            <label>Auto-pay per order up to ($)<input type="number" min="0" step="1" name="per_order_autopay_max" required></label>
+            <label>Daily budget ($)<input type="number" min="0" step="1" name="daily_max" required></label>
+            <label>Weekly budget ($)<input type="number" min="0" step="1" name="weekly_max" required></label>
+            <label>Daily hard cap ($, blank for none)<input type="number" min="0" step="1" name="daily_hard_cap"></label>
+            <label>Weekly hard cap ($, blank for none)<input type="number" min="0" step="1" name="weekly_hard_cap"></label>
+            <label>Ask me when a price rises over (%)<input type="number" min="1" max="500" step="1" name="price_jump_pct" required></label>
+            <label>Ask me when a quantity is over (× usual)<input type="number" min="2" max="20" step="1" name="quantity_spike_multiplier" required></label>
+          </div>
+          <fieldset><legend>Approved suppliers</legend><div id="policy-suppliers"></div></fieldset>
+          <p class="form-error" id="policy-error" role="alert" hidden></p>
+          <button class="btn primary" type="submit">Save rules</button>
+        </form>
+        <section class="form-card" aria-labelledby="paypal-title">
+          <h2 id="paypal-title">PayPal</h2>
+          <p id="paypal-status" class="muted">Checking…</p>
+          <p class="muted">Connecting saves your PayPal for supplier orders (PayPal Vault). Each payment is still a hold first, charged only for what is delivered.</p>
+          <button class="btn primary" id="btn-connect" type="button">Connect PayPal</button>
+          <h3>Spend</h3>
+          <dl class="stats" id="spend-stats"></dl>
+        </section>
+      </div>
+    </section>
+
+    <section role="tabpanel" id="panel-suppliers" aria-labelledby="tab-suppliers" hidden>
+      <div class="section-head">
+        <h2>Suppliers</h2>
+        <p class="muted">Where payouts go. Edit a PayPal email or tick verified to change it (all suppliers here are fictional).</p>
+      </div>
+      <div id="suppliers-grid" class="grid" role="region" aria-label="Suppliers table"></div>
+    </section>
   </main>
 
-  <footer class="foot">Simulated voice assistant for demonstration. Speech in: browser speech recognition. Speech out: Amazon Polly (or browser voice). Agent: Amazon Bedrock Converse tool use (or offline rules).</footer>
+  <dialog id="payment-dialog" aria-labelledby="payment-title">
+    <div class="dialog-head">
+      <h2 id="payment-title">Payment</h2>
+      <button class="btn ghost small" id="btn-close-payment" type="button" aria-label="Close">Close</button>
+    </div>
+    <div id="payment-body"></div>
+  </dialog>
 
   <dialog id="access-dialog">
     <form method="dialog" id="access-form">
@@ -90,6 +183,11 @@
     </form>
   </dialog>
 
+  <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+
+  <footer class="foot" id="foot">Fictional shop and suppliers. Speech in: browser speech recognition. Speech out: browser voice or Amazon Polly. Payments: PayPal sandbox or a labelled simulation; no real money.</footer>
+
+  <script src="/static/vendor/ag-grid-community.min.js"></script>
   <script src="/static/app.js" type="module"></script>
 </body>
 </html>

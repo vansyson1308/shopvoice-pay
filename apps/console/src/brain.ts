@@ -85,12 +85,42 @@ function periodFrom(text: string): string {
   return 'today';
 }
 
+const NUMBER_WORDS: Record<string, number> = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12 };
+
+/** "Only 8 crates of milk came", "the milk arrived", "nothing came from the bakery" (statements, not questions). */
+function planDelivery(t: string): { name: string; input: Record<string, unknown> } | null {
+  if (/\?\s*$/.test(t) || /^(did|has|have|is|was|when)\b/.test(t) || /\binvoice\b/.test(t)) return null;
+  const nothing = /\bnothing (?:came|arrived|was delivered) from (?:the )?(.+?)[.!]*$/.exec(t);
+  if (nothing?.[1]) return { name: 'record_delivery', input: { supplier: nothing[1].trim(), nothing_arrived: true } };
+  const partial = /\b(?:only |just )?(\d+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve) (?:(?:crates?|cases?|loaves|loaf|packs?|boxes|box|bags?|cartons?|units?|bottles?|cans?) )?(?:of )?(.+?) (?:came|arrived|were delivered|was delivered|showed up)\b/.exec(t);
+  if (partial?.[1] && partial[2]) {
+    const qty = /^\d+$/.test(partial[1]) ? Number(partial[1]) : NUMBER_WORDS[partial[1]] ?? 0;
+    const product = cleanProduct(partial[2]);
+    return { name: 'record_delivery', input: { supplier: product, items: [{ product, received_qty: qty }] } };
+  }
+  const full = /^(?:all of |everything from )?(?:the )?(.+?) (?:delivery |order )?(?:came|arrived|was delivered|is here)(?: in full| complete)?[.!]*$/.exec(t);
+  if (full?.[1] && full[1].split(/\s+/).length <= 4) return { name: 'record_delivery', input: { supplier: cleanProduct(full[1]), everything_arrived: true } };
+  return null;
+}
+
 /** Maps an utterance to a tool call (name + args) the way a tool-use model would. */
 export function planToolCall(text: string): { name: string; input: Record<string, unknown> } | null {
   const t = text.toLowerCase().trim();
   if (!t) return null;
   if (isAffirmative(t) && t.split(/\s+/).length <= 6) return { name: 'confirm_reorder', input: { confirmation_token: 'held-by-host' } };
   if (/\b(briefing|morning summary|how('s| is) the shop)\b/.test(t)) return { name: 'get_daily_briefing', input: {} };
+  const delivery = planDelivery(t);
+  if (delivery) return delivery;
+  if (/\bwhy\b/.test(t) && /\b(order|payment|pay|paid|approv|ok|blocked)\w*/.test(t)) {
+    const who = /\bwhy (?:did|was|is) (?:the |my )?(.+?) (?:order|payment|bill)\b/.exec(t)?.[1];
+    return { name: 'explain_payment', input: who ? { supplier: who.trim() } : {} };
+  }
+  if (/\b(spending rules|my rules|auto-?pay limit|spending policy|budget rules)\b/.test(t)) return { name: 'get_spending_policy', input: {} };
+  if (/\b(spent|spend|spending)\b/.test(t) && /\b(supplier|suppliers|week|today|budget|how much)\b/.test(t)) return { name: 'get_spend_summary', input: {} };
+  if (/\b(payment|paid|pay)\b/.test(t) && /\b(status|go through|went through|go out|went out|did|has|is)\b/.test(t)) {
+    const who = /\b(?:the|my) (.+?) (?:payment|order)\b/.exec(t)?.[1];
+    return { name: 'get_payment_status', input: who ? { supplier: who.trim() } : {} };
+  }
   if (/\b(running low|low on|what'?s low|out of stock|low stock)\b/.test(t)) return { name: 'get_low_stock', input: {} };
   if (/\b(invoice|delivery|bill)\b/.test(t)) {
     const m = /(?:the|from)\s+(.+?)\s+(?:invoice|delivery|bill)/.exec(t) ?? /(?:invoice|delivery|bill)\s+from\s+(.+?)(?:\s+(?:arrive|come|get).*)?[?.!]*$/.exec(t);

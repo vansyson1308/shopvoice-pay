@@ -68,6 +68,8 @@ export function systemPrompt(today: string): string {
     'Always use the ShopVoice tools for shop data; never guess numbers.',
     'Each tool result has a "text" part written to be spoken. Reply with that text, lightly adapted, in at most 35 words. No lists, markdown or emojis.',
     'Reorders are two-step: call create_reorder_draft, speak its summary, and wait. Only when the owner clearly says yes, call confirm_reorder (the host fills in the confirmation token). If they say no, do nothing.',
+    "confirm_reorder pays suppliers through PayPal within the owner's spending rules; you cannot approve payments: when one waits for approval, the host asks the owner itself.",
+    'When the owner says what was delivered (for example "only 8 crates of milk came"), call record_delivery. For refunds, rule changes, payment status, spend or "why", use the matching tool.',
     'For "compared to last <weekday>" use get_sales_summary with compare_weekday. If a tool asks a clarifying question, ask it.'
   ].join(' ');
 }
