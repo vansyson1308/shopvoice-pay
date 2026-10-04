@@ -87,29 +87,29 @@ test('sign-up creates an account and a populated sandbox shop; duplicate email i
   const account = await store.createAccount({ email, passwordHash: 'scrypt$1$1$1$c2FsdA$a2V5a2V5a2V5a2V5a2V5', locale: 'en' });
   assert.equal(account.email, email.toLowerCase());
   assert.equal(account.isSandbox, true);
-  assert.equal(account.shopName, 'Demo shop (sample data)');
+  assert.equal(account.shopName, 'Your demo shop (sample data)');
   const counts = await admin.query(`SELECT (SELECT count(*) FROM product_cache WHERE tenant_id = $1)::int AS products,
       (SELECT count(*) FROM sales_daily WHERE tenant_id = $1)::int AS sales,
       (SELECT count(*) FROM canonical_invoices WHERE tenant_id = $1)::int AS invoices,
       (SELECT count(*) FROM stock_levels s JOIN reorder_rules r USING (tenant_id, sku) WHERE s.tenant_id = $1 AND s.on_hand_qty <= r.min_qty)::int AS low`, [account.tenantId]);
-  assert.deepEqual(counts.rows[0], { products: 60, sales: 5460, invoices: 3, low: 4 });
+  assert.deepEqual(counts.rows[0], { products: 47, sales: 1457, invoices: 3, low: 4 });
   await assert.rejects(store.createAccount({ email: email.toUpperCase(), passwordHash: 'scrypt$x', locale: 'en' }), AccountExistsError);
   const creds = await store.findCredentials(email);
   assert.equal(creds.accountId, account.accountId);
 });
 
-test('Vietnamese sandbox uses VND; sandbox_refresh is a no-op on the same day', { skip }, async () => {
+test('a Vietnamese UI locale still gets the USD sandbox; sandbox_refresh is a no-op on the same day', { skip }, async () => {
   const account = await store.createAccount({ email: `vi-${run}@example.com`, passwordHash: 'scrypt$x', locale: 'vi' });
-  const profile = await admin.query('SELECT display_currency, locale FROM shop_profiles WHERE tenant_id = $1', [account.tenantId]);
-  assert.deepEqual(profile.rows[0], { display_currency: 'VND', locale: 'vi-VN' });
+  const profile = await admin.query('SELECT display_currency, locale, timezone FROM shop_profiles WHERE tenant_id = $1', [account.tenantId]);
+  assert.deepEqual(profile.rows[0], { display_currency: 'USD', locale: 'en-US', timezone: 'America/New_York' });
   assert.equal(await store.refreshSandbox(account.tenantId), false);
   await admin.query("UPDATE sandbox_shops SET seeded_on = seeded_on - 3 WHERE tenant_id = $1", [account.tenantId]);
   await admin.query('DELETE FROM sales_daily WHERE tenant_id = $1', [account.tenantId]);
   assert.equal(await store.refreshSandbox(account.tenantId), true);
   const sales = await admin.query('SELECT count(*)::int AS n FROM sales_daily WHERE tenant_id = $1', [account.tenantId]);
-  assert.equal(sales.rows[0].n, 5460, 're-seeded');
+  assert.equal(sales.rows[0].n, 1457, 're-seeded');
   const again = await admin.query('SELECT display_currency FROM shop_profiles WHERE tenant_id = $1', [account.tenantId]);
-  assert.equal(again.rows[0].display_currency, 'VND', 'locale kept on re-seed');
+  assert.equal(again.rows[0].display_currency, 'USD', 'still USD after re-seed');
 });
 
 test('codes are single-use; reuse revokes the issued tokens', { skip }, async () => {

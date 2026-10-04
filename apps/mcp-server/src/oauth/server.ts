@@ -64,6 +64,7 @@ const SESSION_TTL_MS = 12 * 3600_000;
 /** Privacy policy: tool-call audit entries are kept 90 days. */
 export const AUDIT_RETENTION_DAYS = 90;
 const MAX_FORM_BYTES = 16 * 1024;
+const SANDBOX_DAY = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit' });
 const AUTHZ_FIELDS = ['response_type', 'client_id', 'redirect_uri', 'state', 'code_challenge', 'code_challenge_method', 'scope', 'resource', 'ui_locales'] as const;
 
 const CORS: Record<string, string> = {
@@ -725,7 +726,7 @@ export function createOAuthServer(deps: OAuthServerDeps): OAuthServer {
       return { tenantId: grant.tenantId, accountId: grant.accountId, clientId: grant.clientId, scopes: new Set(grant.scopes), isSandbox: grant.isSandbox };
     },
     async ensureSandboxFresh(tenantId) {
-      const day = new Date(now() + 7 * 3600_000).toISOString().slice(0, 10); // Asia/Ho_Chi_Minh (UTC+7, no DST)
+      const day = SANDBOX_DAY.format(new Date(now())); // the sample shop's own day (America/New_York)
       if (sandboxChecked.get(tenantId) === day) return;
       if (await store.refreshSandbox(tenantId)) logger.info('sandbox_reseeded', { tenant_id: tenantId });
       sandboxChecked.set(tenantId, day);

@@ -48,7 +48,7 @@ export function loadSimConfig(env: Record<string, string | undefined>): SimConfi
     accessCode: env.SIM_ACCESS_CODE ?? '',
     turnsPerMinute: Number.parseInt(env.SIM_TURNS_PER_MINUTE ?? '30', 10) || 30,
     anchorDate: env.DEMO_ANCHOR_DATE ?? '',
-    shopTimezone: env.SIM_SHOP_TIMEZONE ?? 'Asia/Ho_Chi_Minh',
+    shopTimezone: env.SIM_SHOP_TIMEZONE ?? 'America/New_York',
     originVerifySecret: env.ORIGIN_VERIFY_SECRET ?? ''
   };
 }

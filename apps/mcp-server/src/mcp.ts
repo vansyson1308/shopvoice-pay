@@ -59,7 +59,7 @@ function defaultRedact(args: Record<string, unknown>): Record<string, unknown> {
 
 const VOICE_INSTRUCTIONS = 'ShopVoice answers a grocery shop owner by voice. Tool results include content[0].text: a short sentence meant to be spoken as-is. Reorders are two-step: create_reorder_draft, read the summary aloud, and call confirm_reorder only after the owner explicitly says yes.';
 
-export const CHAT_INSTRUCTIONS = 'ShopVoice exposes one small grocery or convenience shop: stock levels, daily sales, supplier invoices and purchase-order drafts. Amounts are in the shop\'s display currency (the currency field; *_vnd fields hold exact Vietnamese dong) and quantities are in each product\'s own unit. Reorders take two calls: create_reorder_draft records a draft and returns a confirmation_token valid for 5 minutes, and confirm_reorder marks the draft as a confirmed purchase order; no payment is ever made.';
+export const CHAT_INSTRUCTIONS = 'ShopVoice exposes one small grocery or convenience shop: stock levels, daily sales, supplier invoices and purchase-order drafts. Amounts are in the shop\'s display currency (the currency field; *_minor fields hold exact amounts in cents) and quantities are in each product\'s own unit. Reorders take two calls: create_reorder_draft records a draft and returns a confirmation_token valid for 5 minutes, and confirm_reorder marks the draft as a confirmed purchase order; no payment is ever made.';
 
 /** One McpServer per MCP session, bound to the tenant resolved from the bearer token. */
 export function createShopVoiceServer(opts: McpFactoryOptions): McpServer {
@@ -102,7 +102,7 @@ export function createShopVoiceServer(opts: McpFactoryOptions): McpServer {
         text: JSON.stringify({
           shop_name: profile.shopName,
           display_currency: profile.displayCurrency,
-          vnd_per_display_unit: profile.vndPerDisplayUnit,
+          minor_per_unit: profile.minorPerUnit,
           timezone: profile.timezone,
           locale: profile.locale
         })
@@ -131,7 +131,7 @@ function registerTool(server: McpServer, tool: ToolDefinition<z.ZodRawShape, z.Z
           repo,
           profile,
           today: await repo.today(),
-          money: { currency: profile.displayCurrency, vndPerUnit: profile.vndPerDisplayUnit },
+          money: { currency: profile.displayCurrency, minorPerUnit: profile.minorPerUnit },
           confirmTtlSeconds: opts.confirmTtlSeconds
         };
         return tool.run(ctx, args);

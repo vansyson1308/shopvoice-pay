@@ -21,8 +21,17 @@ export interface MemoryPriceRow {
   readonly observedOn: string;
 }
 
+/** A completed past order, seeded as ledger history (no PayPal transaction behind it). */
+export interface MemorySeedPayment {
+  readonly supplierCode: string;
+  readonly lines: readonly { readonly sku: string; readonly name: string; readonly qty: number; readonly unitCostMinor: number }[];
+  readonly amountMinor: number;
+  readonly createdAt: string;
+}
+
 /** Optional per-tenant seed for the payments tables. */
 export interface MemoryPaymentsSeed {
+  readonly history?: readonly MemorySeedPayment[];
   readonly policy?: SpendPolicy;
   readonly payees?: readonly SupplierPayee[];
   readonly prices?: readonly MemoryPriceRow[];
@@ -45,6 +54,40 @@ export class MemoryPaymentsData {
     for (const payee of seed.payees ?? []) this.payees.set(payee.supplierCode, payee);
     this.prices = [...(seed.prices ?? [])];
     this.pastQuantities = Object.fromEntries(Object.entries(seed.pastQuantities ?? {}).map(([k, v]) => [k, [...v]]));
+    (seed.history ?? []).forEach((h, i) => {
+      const id = `seed-${String(i + 1).padStart(4, '0')}-${h.supplierCode.toLowerCase()}`;
+      const text = 'Seeded order history (no PayPal transaction).';
+      this.payments.set(id, {
+        id,
+        draftId: null,
+        supplierCode: h.supplierCode,
+        currency: 'USD',
+        status: 'captured',
+        decision: 'autopay',
+        decisionReasons: [{ code: 'within_policy', effect: 'info', text }],
+        linesFingerprint: `${h.supplierCode}|${h.lines.map((l) => `${l.sku}x${l.qty}`).join(',')}`,
+        lines: h.lines.map((l) => ({ ...l })),
+        createdBy: 'agent',
+        approvedBy: null,
+        requestedMinor: h.amountMinor,
+        authorizedMinor: h.amountMinor,
+        capturedMinor: h.amountMinor,
+        voidedMinor: 0,
+        refundedMinor: 0,
+        settledMinor: h.amountMinor,
+        paypalOrderId: null,
+        paypalAuthorizationId: null,
+        paypalCaptureIds: [],
+        authorizationExpiresAt: null,
+        honorPeriodEndsAt: null,
+        approvalTokenHash: null,
+        approvalExpiresAt: null,
+        correlationId: 'seed',
+        createdAt: h.createdAt,
+        updatedAt: h.createdAt
+      });
+      this.events.push({ id: `${id}-e1`, paymentId: id, kind: 'captured', amountMinor: h.amountMinor, currency: 'USD', actor: 'system', reason: text, correlationId: 'seed', createdAt: h.createdAt });
+    });
   }
 }
 

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  countWords, fitSpeech, pluralize, formatQty, formatMoney, speakList, formatDaysLeft, percentChange, compareClause
+  countWords, fitSpeech, pluralize, formatQty, formatMoney, minorToDisplay, speakList, formatDaysLeft, percentChange, compareClause
 } from '../../apps/mcp-server/dist/speech.js';
 import {
   resolvePeriod, resolveComparison, describeDate, weekdayIndex, suggestedOrderQty, needsReorder, daysOfCover, roundUpToPack, addDays
@@ -11,8 +11,9 @@ import { similarity, wordSimilarity } from '../../apps/mcp-server/dist/memory-st
 import { loadMcpServerConfig } from '../../apps/mcp-server/dist/config.js';
 import { safeErrorSpeech } from '../../apps/mcp-server/dist/mcp.js';
 
-const USD = { currency: 'USD', vndPerUnit: 25000 };
-const VND = { currency: 'VND', vndPerUnit: 1 };
+const USD = { currency: 'USD', minorPerUnit: 100 };
+const EUR = { currency: 'EUR', minorPerUnit: 100 };
+const JPY = { currency: 'JPY', minorPerUnit: 1 };
 
 test('fitSpeech picks the first candidate within budget, else truncates', () => {
   assert.equal(fitSpeech(['one two three', 'one'], 2), 'one');
@@ -30,11 +31,14 @@ test('units are pluralised and quantities rounded', () => {
 });
 
 test('money is spoken in the display currency', () => {
-  assert.equal(formatMoney(10_950_000, USD), '$438');
-  assert.equal(formatMoney(100_000, USD), '$4.00');
-  assert.equal(formatMoney(2_450_000, VND), '2.5 million dong');
-  assert.equal(formatMoney(850_000, VND), '850 thousand dong');
-  assert.equal(formatMoney(1_000_000, VND), '1 million dong');
+  assert.equal(formatMoney(43_800, USD), '$438');
+  assert.equal(formatMoney(400, USD), '$4.00');
+  assert.equal(formatMoney(14_200, USD), '$142');
+  assert.equal(formatMoney(999, USD), '$9.99');
+  assert.equal(formatMoney(1_234_567, USD), '$12,346');
+  assert.equal(formatMoney(250, EUR), '€2.50');
+  assert.equal(formatMoney(1500, JPY), '1,500 JPY');
+  assert.equal(minorToDisplay(8_437, USD), 84.37);
 });
 
 test('lists are capped at 3 items with "and N more"', () => {
@@ -81,7 +85,7 @@ test('comparisons: same weekday last week, previous period, named weekday', () =
 });
 
 test('reorder math: cover target (lead + 7) x forecast - on hand, pack rounding', () => {
-  const row = { onHand: 13, minQty: 28, reorderQty: 108, packSize: 12, leadTimeDays: 1, avgDaily14d: 15, sku: 'M', name: 'Milk', unit: 'carton', barcode: null, unitCostVnd: 1, supplierCode: 'S' };
+  const row = { onHand: 13, minQty: 28, reorderQty: 108, packSize: 12, leadTimeDays: 1, avgDaily14d: 15, sku: 'M', name: 'Milk', unit: 'carton', barcode: null, unitCostMinor: 1, supplierCode: 'S' };
   assert.equal(daysOfCover(row), 0.9);
   assert.equal(suggestedOrderQty(row), 108, '(1+7)*15-13 = 107 -> 108');
   assert.equal(needsReorder(row), true);
@@ -96,11 +100,14 @@ test('reorder math: cover target (lead + 7) x forecast - on hand, pack rounding'
 });
 
 test('invoice matching uses supplier, product words and simple synonyms', () => {
-  const inv = { supplierName: 'Sunrise Beverages', supplierCode: 'SUP-BEV', invoiceNumber: 'SRB-1', productNames: ['Green Tea 450ml', 'Lager Beer 330ml Can'] };
-  assert.equal(invoiceMatches(inv, 'Sunrise'), true);
+  const inv = { supplierName: 'Harbor Wholesale', supplierCode: 'SUP-HARBOR', invoiceNumber: 'HW-1', productNames: ['Sweet iced tea, 18.5 oz', 'Cola, 12 x 12 oz cans'] };
+  assert.equal(invoiceMatches(inv, 'Harbor'), true);
   assert.equal(invoiceMatches(inv, 'the drinks invoice'), true);
-  assert.equal(invoiceMatches(inv, 'beer'), true);
+  assert.equal(invoiceMatches(inv, 'cola'), true);
   assert.equal(invoiceMatches(inv, 'snacks'), false);
+  const bakery = { supplierName: 'Hillside Bakery', supplierCode: 'SUP-BAKERY', invoiceNumber: 'HB-1', productNames: ['White sandwich bread, 20 oz'] };
+  assert.equal(invoiceMatches(bakery, 'the bread delivery'), true);
+  assert.equal(invoiceMatches(bakery, 'drinks'), false);
 });
 
 test('confirmation tokens are random and only their hash is stored', () => {
@@ -110,7 +117,7 @@ test('confirmation tokens are random and only their hash is stored', () => {
 });
 
 test('in-memory trigram similarity mirrors pg_trgm on demo queries', () => {
-  assert.equal(wordSimilarity('milk', 'Fresh Milk 1L'), 1);
+  assert.equal(wordSimilarity('milk', 'Whole milk, 1 gal'), 1);
   assert.equal(wordSimilarity('egg', 'Chicken Eggs 10-pack'), 0.75);
   assert.equal(wordSimilarity('pepsi', 'Ground Pepper 50g'), 0.5);
   assert.ok(similarity('cola', 'Cola 330ml Can') > 0.3);

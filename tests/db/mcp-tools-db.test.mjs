@@ -58,7 +58,7 @@ test.before(async () => {
     c.release();
   }
   await query(admin, "INSERT INTO tenants (id, name, status, processing_mode) VALUES ($1, 'DB Other Shop', 'active', 'v2') ON CONFLICT (id) DO NOTHING", [OTHER_TENANT]);
-  await query(admin, "INSERT INTO shop_profiles (tenant_id, shop_name, display_currency) VALUES ($1, 'DB Other Shop', 'VND') ON CONFLICT (tenant_id) DO NOTHING", [OTHER_TENANT]);
+  await query(admin, "INSERT INTO shop_profiles (tenant_id, shop_name, display_currency) VALUES ($1, 'DB Other Shop', 'USD') ON CONFLICT (tenant_id) DO NOTHING", [OTHER_TENANT]);
   for (const [tenant, token] of [[DEMO_TENANT_ID, TOKEN_DEMO], [OTHER_TENANT, TOKEN_OTHER]]) {
     await query(admin, "INSERT INTO mcp_access_tokens (tenant_id, token_hash, label) VALUES ($1, $2, 'db-test') ON CONFLICT (token_hash) DO NOTHING", [tenant, sha(token)]);
   }
@@ -81,10 +81,10 @@ const call = (name, args = {}) => client.callTool({ name, arguments: args });
 test('read tools work on the Postgres demo seed through RLS', { skip }, async () => {
   const low = await call('get_low_stock');
   assert.ok(!low.isError, spoken(low));
-  assert.deepEqual(low.structuredContent.items.map((i) => i.sku).sort(), ['BREAD-WHITE', 'COLA-330', 'EGG-10', 'MILK-1L']);
+  assert.deepEqual(low.structuredContent.items.map((i) => i.sku).sort(), ['BREAD-WHITE', 'EGGS-30', 'MILK-WHOLE', 'PAPER-TOWELS']);
 
-  const milk = await call('get_stock_level', { product: 'fresh milk 1l' });
-  assert.equal(milk.structuredContent.product.sku, 'MILK-1L');
+  const milk = await call('get_stock_level', { product: 'whole milk' });
+  assert.equal(milk.structuredContent.product.sku, 'MILK-WHOLE');
   const eggs = await call('get_stock_level', { product: 'eggs' });
   assert.equal(eggs.structuredContent.status, 'ambiguous');
 
@@ -93,7 +93,7 @@ test('read tools work on the Postgres demo seed through RLS', { skip }, async ()
   assert.ok(sales.structuredContent.comparison.revenue > 0);
 
   const top = await call('get_top_movers');
-  assert.equal(top.structuredContent.items[0].sku, 'NOODLE-SHRIMP');
+  assert.equal(top.structuredContent.items[0].sku, 'CANDY-BAR');
 
   const inv = await call('get_invoice_status');
   assert.deepEqual(inv.structuredContent.invoices.map((i) => i.status), ['mapped', 'arrived', 'synced']);
@@ -161,7 +161,7 @@ test('tenant isolation over MCP: another tenant sees none of the demo shop', { s
   try {
     const low = await other.callTool({ name: 'get_low_stock', arguments: {} });
     assert.equal(low.structuredContent.total_low, 0);
-    const milk = await other.callTool({ name: 'get_stock_level', arguments: { product: 'Fresh Milk 1L' } });
+    const milk = await other.callTool({ name: 'get_stock_level', arguments: { product: 'Whole milk' } });
     assert.equal(milk.structuredContent.status, 'not_found');
     const inv = await other.callTool({ name: 'get_invoice_status', arguments: {} });
     assert.equal(inv.structuredContent.invoices.length, 0);

@@ -22,7 +22,7 @@ export interface MemoryProduct {
   readonly minQty: number;
   readonly reorderQty: number;
   readonly packSize: number;
-  readonly unitCostVnd: number;
+  readonly unitCostMinor: number;
   readonly supplierCode: string | null;
   readonly leadTimeDays: number;
 }
@@ -31,7 +31,7 @@ export interface MemorySale {
   readonly date: string;
   readonly sku: string;
   readonly qty: number;
-  readonly revenueVnd: number;
+  readonly revenueMinor: number;
 }
 
 export interface MemoryTenantData {
@@ -56,7 +56,7 @@ interface MutableDraft {
   tenantId: string;
   supplierCode: string;
   lines: NewDraft['lines'];
-  totalVnd: number;
+  totalMinor: number;
   status: DraftRow['status'];
   tokenHash: string;
   expiresAtMs: number;
@@ -165,17 +165,17 @@ class MemoryRepository implements ShopRepository {
   }
 
   async salesTotals(startDate: string, endDate: string): Promise<SalesTotals> {
-    let revenueVnd = 0;
+    let revenueMinor = 0;
     let units = 0;
     const days = new Set<string>();
     for (const s of this.data.sales) {
       if (s.date >= startDate && s.date <= endDate) {
-        revenueVnd += s.revenueVnd;
+        revenueMinor += s.revenueMinor;
         units += s.qty;
         days.add(s.date);
       }
     }
-    return { revenueVnd, units, daysWithSales: days.size };
+    return { revenueMinor, units, daysWithSales: days.size };
   }
 
   async salesBySku(startDate: string, endDate: string): Promise<SkuSales[]> {
@@ -190,7 +190,7 @@ class MemoryRepository implements ShopRepository {
         name: p?.name ?? s.sku,
         unit: p?.unit ?? null,
         units: (prev?.units ?? 0) + s.qty,
-        revenueVnd: (prev?.revenueVnd ?? 0) + s.revenueVnd
+        revenueMinor: (prev?.revenueMinor ?? 0) + s.revenueMinor
       });
     }
     return [...agg.values()];
@@ -210,7 +210,7 @@ class MemoryRepository implements ShopRepository {
     const expiresAtMs = this.now() + ttlSeconds * 1000;
     const ids = drafts.map((d) => {
       const id = randomUUID();
-      this.drafts.push({ id, tenantId: this.tenantId, supplierCode: d.supplierCode, lines: d.lines, totalVnd: d.totalVnd, status: 'draft', tokenHash, expiresAtMs });
+      this.drafts.push({ id, tenantId: this.tenantId, supplierCode: d.supplierCode, lines: d.lines, totalMinor: d.totalMinor, status: 'draft', tokenHash, expiresAtMs });
       return id;
     });
     return { ids, expiresAt: new Date(expiresAtMs).toISOString() };
@@ -221,7 +221,7 @@ class MemoryRepository implements ShopRepository {
     return this.drafts
       .filter((d) => d.tenantId === this.tenantId && d.tokenHash === tokenHash)
       .map((d) => ({
-        id: d.id, supplierCode: d.supplierCode, lines: d.lines, totalVnd: d.totalVnd, status: d.status,
+        id: d.id, supplierCode: d.supplierCode, lines: d.lines, totalMinor: d.totalMinor, status: d.status,
         expiresAt: new Date(d.expiresAtMs).toISOString(), expired: d.expiresAtMs <= now
       }));
   }

@@ -15,11 +15,11 @@ test('rules brain maps demo utterances to the right MCP tools', () => {
   assert.deepEqual(planToolCall('How were sales today compared to last Friday?'), { name: 'get_sales_summary', input: { period: 'today', compare_weekday: 'friday' } });
   assert.deepEqual(planToolCall('Reorder milk and eggs'), { name: 'create_reorder_draft', input: { items: [{ product: 'milk' }, { product: 'eggs' }] } });
   assert.equal(planToolCall('Yes, confirm').name, 'confirm_reorder');
-  assert.deepEqual(planToolCall('Did the Sunrise Beverages invoice arrive?'), { name: 'get_invoice_status', input: { supplier: 'sunrise beverages' } });
+  assert.deepEqual(planToolCall('Did the Harbor Wholesale invoice arrive?'), { name: 'get_invoice_status', input: { supplier: 'harbor wholesale' } });
   assert.deepEqual(planToolCall('How many eggs do we have left?'), { name: 'get_stock_level', input: { product: 'eggs' } });
   assert.equal(planToolCall('What were my best sellers this week?').name, 'get_top_movers');
   assert.equal(planToolCall('Give me my morning briefing').name, 'get_daily_briefing');
-  assert.equal(planToolCall('Order some bread and cola from my usual supplier').input.items.length, 2);
+  assert.equal(planToolCall('Order some bread and soda from my usual supplier').input.items.length, 2);
   assert.equal(planToolCall('tell me a joke'), null);
 });
 

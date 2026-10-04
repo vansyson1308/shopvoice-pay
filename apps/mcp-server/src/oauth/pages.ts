@@ -219,7 +219,7 @@ export function renderAuthPage(p: AuthPageInput): string {
 <label for="su-email">${s.email}</label><input id="su-email" type="email" name="email" autocomplete="email" required>
 <label for="su-pw">${s.password}</label><input id="su-pw" type="password" name="password" autocomplete="new-password" minlength="10" required><div class="muted">${s.passwordRule}</div>
 <label for="su-pw2">${s.passwordConfirm}</label><input id="su-pw2" type="password" name="password_confirm" autocomplete="new-password" minlength="10" required>
-<label for="su-loc">${s.language}</label><select id="su-loc" name="locale"><option value="en"${p.locale === 'en' ? ' selected' : ''}>English (USD)</option><option value="vi"${p.locale === 'vi' ? ' selected' : ''}>Tiếng Việt (VND)</option></select>
+<label for="su-loc">${s.language}</label><select id="su-loc" name="locale"><option value="en"${p.locale === 'en' ? ' selected' : ''}>English</option><option value="vi"${p.locale === 'vi' ? ' selected' : ''}>Tiếng Việt</option></select>
 <label class="check"><input type="checkbox" name="accept_terms" required> <span>${s.acceptTerms}</span></label>
 <div class="row"><button type="submit" name="action" value="signup">${s.signup}</button></div></form></div>
 <p class="muted" style="text-align:center"><a href="${esc(p.langSwitchHref)}">${other === 'vi' ? 'Tiếng Việt' : 'English'}</a></p>`;
@@ -251,7 +251,7 @@ export function renderConsentPage(p: ConsentPageInput): string {
     writeRequested ? `<li><label class="check" style="margin:0"><input type="checkbox" name="grant_write" value="1" checked> <span>${s.canWrite}</span></label></li>` : '',
     p.scopes.includes('offline_access') ? `<li>✓ ${s.refresh}</li>` : ''
   ].join('');
-  const shop = `${esc(p.account.shopName)}${p.account.isSandbox && !/sample|mẫu/i.test(p.account.shopName) ? ` <span class="pill">${s.sample}</span>` : ''}`;
+  const shop = `${esc(p.account.shopName)}${p.account.isSandbox && !/sample|mẫu|demo/i.test(p.account.shopName) ? ` <span class="pill">${s.sample}</span>` : ''}`;
   const body = `
 <div class="card"><h1>${s.consentTitle}</h1>
 <ul class="facts"><li><div class="muted">${s.app}</div>${identity}</li>
@@ -294,7 +294,7 @@ export function renderAccountPage(p: AccountPageInput): string {
     ? `<p class="muted">${s.noApps}</p>`
     : p.grants.map((g) => `<div class="app"><div><b>${esc(appLabel(g))}</b><div class="muted">${esc(g.scopes.join(' '))} · ${s.lastUsed} ${esc(g.lastUsedAt.slice(0, 16).replace('T', ' '))} UTC</div></div>
 <form method="post" action="/account">${csrf}<input type="hidden" name="client_id" value="${esc(g.clientId)}"><button type="submit" name="action" value="revoke">${s.revoke}</button></form></div>`).join('');
-  const shop = `${esc(p.account.shopName)}${p.account.isSandbox && !/sample|mẫu/i.test(p.account.shopName) ? ` <span class="pill">${s.sample}</span>` : ''}`;
+  const shop = `${esc(p.account.shopName)}${p.account.isSandbox && !/sample|mẫu|demo/i.test(p.account.shopName) ? ` <span class="pill">${s.sample}</span>` : ''}`;
   const body = `
 <div class="card"><h1>${s.accountTitle}</h1>
 ${p.notice ? `<div class="ok" role="status">${s[p.notice]}</div>` : ''}${p.error ? `<div class="err" role="alert">${s[p.error]}</div>` : ''}

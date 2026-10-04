@@ -23,10 +23,10 @@ export function percentile(values, p) {
 
 const CALLS = [
   ['get_low_stock', {}],
-  ['get_stock_level', { product: 'fresh milk 1l' }],
+  ['get_stock_level', { product: 'whole milk' }],
   ['get_sales_summary', { period: 'today', compare_weekday: 'friday' }],
   ['get_top_movers', {}],
-  ['get_invoice_status', { supplier: 'Sunrise Beverages' }],
+  ['get_invoice_status', { supplier: 'Harbor Wholesale' }],
   ['suggest_reorder', {}],
   ['get_daily_briefing', {}],
   ['create_reorder_draft', { items: [{ product: 'milk' }] }]

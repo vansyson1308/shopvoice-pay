@@ -38,7 +38,7 @@ test('get_low_stock lists the 4 seeded low items, most urgent first, max 3 spoke
   assertVoiceContract(r, 'get_low_stock');
   const data = r.structuredContent;
   assert.equal(data.total_low, 4);
-  assert.deepEqual(data.items.map((i) => i.sku).sort(), ['BREAD-WHITE', 'COLA-330', 'EGG-10', 'MILK-1L']);
+  assert.deepEqual(data.items.map((i) => i.sku).sort(), ['BREAD-WHITE', 'EGGS-30', 'MILK-WHOLE', 'PAPER-TOWELS']);
   const covers = data.items.map((i) => i.days_of_cover);
   assert.deepEqual(covers, [...covers].sort((a, b) => a - b));
   assert.ok(data.items.every((i) => i.below_min && i.on_hand <= i.min_qty));
@@ -47,20 +47,20 @@ test('get_low_stock lists the 4 seeded low items, most urgent first, max 3 spoke
 });
 
 test('get_stock_level resolves exact names and barcodes, asks when ambiguous', async () => {
-  const exact = await call('get_stock_level', { product: 'fresh milk 1l' });
+  const exact = await call('get_stock_level', { product: 'whole milk' });
   assertVoiceContract(exact, 'exact');
   assert.equal(exact.structuredContent.status, 'found');
-  assert.equal(exact.structuredContent.product.sku, 'MILK-1L');
-  assert.match(spoken(exact), /cartons of Fresh Milk 1L/);
+  assert.equal(exact.structuredContent.product.sku, 'MILK-WHOLE');
+  assert.match(spoken(exact), /crates of Whole milk/);
   assert.match(spoken(exact), /below your minimum/);
 
-  const barcode = await call('get_stock_level', { product: exact.structuredContent.product.sku === 'MILK-1L' ? '8931000000000' : 'x' });
-  assert.equal(barcode.structuredContent.product?.sku, 'MILK-1L');
+  const barcode = await call('get_stock_level', { product: '041000000000' });
+  assert.equal(barcode.structuredContent.product?.sku, 'MILK-WHOLE');
 
   const ambiguous = await call('get_stock_level', { product: 'eggs' });
   assertVoiceContract(ambiguous, 'ambiguous');
   assert.equal(ambiguous.structuredContent.status, 'ambiguous');
-  assert.deepEqual(ambiguous.structuredContent.candidates.map((c) => c.sku).sort(), ['EGG-10', 'EGG-DUCK']);
+  assert.deepEqual(ambiguous.structuredContent.candidates.map((c) => c.sku).sort(), ['EGGS-15', 'EGGS-30', 'EGGS-BROWN', 'EGGS-DOZEN']);
   assert.match(spoken(ambiguous), /which one/i);
 
   const missing = await call('get_stock_level', { product: 'zzzz qqqq' });
@@ -77,7 +77,7 @@ test('get_sales_summary: today vs last Friday, partial day, comparisons', async 
   assert.equal(d.comparison.period.start, '2026-09-18', 'last Friday');
   assert.equal(d.currency, 'USD');
   assert.ok(d.revenue > 0 && d.units > 0);
-  assert.equal(d.comparison.percent_of_comparison, Math.round((d.revenue_vnd / d.comparison.revenue_vnd) * 100));
+  assert.equal(d.comparison.percent_of_comparison, Math.round((d.revenue_minor / d.comparison.revenue_minor) * 100));
   assert.match(spoken(today), /^So far today: \$\d/);
   assert.match(spoken(today), /last Friday/);
 
@@ -110,7 +110,7 @@ test('get_top_movers top and bottom', async () => {
   const top = await call('get_top_movers');
   assertVoiceContract(top, 'top');
   assert.equal(top.structuredContent.items.length, 3);
-  assert.equal(top.structuredContent.items[0].sku, 'NOODLE-SHRIMP');
+  assert.equal(top.structuredContent.items[0].sku, 'CANDY-BAR');
   const units = top.structuredContent.items.map((i) => i.units);
   assert.deepEqual(units, [...units].sort((a, b) => b - a));
 
@@ -125,14 +125,15 @@ test('get_invoice_status: latest list and supplier filter', async () => {
   assertVoiceContract(all, 'all invoices');
   assert.deepEqual(all.structuredContent.invoices.map((i) => i.status), ['mapped', 'arrived', 'synced']);
 
-  const bev = await call('get_invoice_status', { supplier: 'Sunrise Beverages' });
-  assertVoiceContract(bev, 'beverages');
-  assert.equal(bev.structuredContent.invoices[0].invoice_number, 'SRB-10442');
-  assert.match(spoken(bev), /^Yes\. The Sunrise Beverages invoice/);
-  assert.match(spoken(bev), /not synced/);
+  const harbor = await call('get_invoice_status', { supplier: 'Harbor Wholesale' });
+  assertVoiceContract(harbor, 'harbor');
+  assert.equal(harbor.structuredContent.invoices[0].invoice_number, 'HW-10442');
+  assert.match(spoken(harbor), /^Yes\. The Harbor Wholesale invoice/);
+  assert.match(spoken(harbor), /not posted/);
+  assert.doesNotMatch(spoken(harbor), /KiotViet/);
 
-  const drinks = await call('get_invoice_status', { supplier: 'the drinks invoice' });
-  assert.equal(drinks.structuredContent.invoices[0]?.supplier_code, 'SUP-BEV');
+  const bakery = await call('get_invoice_status', { supplier: 'the bakery invoice' });
+  assert.equal(bakery.structuredContent.invoices[0]?.supplier_code, 'SUP-BAKERY');
 
   const none = await call('get_invoice_status', { supplier: 'Acme Hardware' });
   assert.equal(none.structuredContent.matched, false);
@@ -143,7 +144,7 @@ test('suggest_reorder: qty = (lead + 7) x avg - on hand, rounded to pack', async
   const r = await call('suggest_reorder');
   assertVoiceContract(r, 'suggest_reorder');
   const lines = r.structuredContent.suppliers.flatMap((s) => s.lines.map((l) => ({ ...l, lead: s.lead_time_days })));
-  assert.deepEqual(lines.map((l) => l.sku).sort(), ['BREAD-WHITE', 'COLA-330', 'EGG-10', 'MILK-1L']);
+  assert.deepEqual(lines.map((l) => l.sku).sort(), ['BREAD-WHITE', 'EGGS-30', 'MILK-WHOLE', 'PAPER-TOWELS']);
   for (const l of lines) {
     const needed = (l.lead + 7) * l.avg_daily_sales - l.on_hand;
     assert.equal(l.suggested_qty % l.pack_size, 0, `${l.sku} rounded to pack`);
@@ -159,15 +160,19 @@ test('two-step reorder: "reorder milk and eggs" drafts low items, confirm is ide
   assert.equal(d.status, 'draft_created');
   assert.match(d.confirmation_token, /^rc_[A-Za-z0-9_-]{16}$/);
   assert.equal(d.expires_in_seconds, 300);
-  assert.equal(d.drafts.length, 1, 'milk and eggs share a supplier');
-  assert.deepEqual(d.drafts[0].lines.map((l) => l.sku).sort(), ['EGG-10', 'MILK-1L'], 'ambiguous names resolve to the low items');
+  assert.equal(d.drafts.length, 2, 'one draft per supplier: dairy and eggs');
+  const bySupplier = Object.fromEntries(d.drafts.map((x) => [x.supplier_code, x]));
+  assert.deepEqual(bySupplier['SUP-DAIRY'].lines.map((l) => [l.sku, l.qty]), [['MILK-WHOLE', 12]], 'ambiguous "milk" resolves to the low item');
+  assert.deepEqual(bySupplier['SUP-EGGS'].lines.map((l) => [l.sku, l.qty]), [['EGGS-30', 10]], 'ambiguous "eggs" resolves to the low item');
+  assert.equal(bySupplier['SUP-DAIRY'].total_minor, 8400, '12 crates x $7.00');
+  assert.equal(bySupplier['SUP-EGGS'].total_minor, 14200, '10 cases x $14.20');
   assert.doesNotMatch(spoken(draft), new RegExp(d.confirmation_token), 'token is never spoken');
   assert.match(spoken(draft), /confirm/);
 
   const ok = await call('confirm_reorder', { confirmation_token: d.confirmation_token });
   assertVoiceContract(ok, 'confirm');
   assert.equal(ok.structuredContent.status, 'confirmed');
-  assert.equal(ok.structuredContent.confirmed_count, 1);
+  assert.equal(ok.structuredContent.confirmed_count, 2);
   assert.match(spoken(ok), /^Done\./);
 
   const again = await call('confirm_reorder', { confirmation_token: d.confirmation_token });
@@ -196,19 +201,19 @@ test('confirmation token expires after 5 minutes', async () => {
 });
 
 test('create_reorder_draft asks instead of guessing when nothing disambiguates', async () => {
-  const r = await call('create_reorder_draft', { items: [{ product: 'noodles' }] });
+  const r = await call('create_reorder_draft', { items: [{ product: 'chips' }] });
   assertVoiceContract(r, 'clarify');
   assert.equal(r.structuredContent.status, 'needs_clarification');
   assert.equal(r.structuredContent.confirmation_token, null);
-  assert.equal(r.structuredContent.clarifications[0].candidates.length, 3);
+  assert.equal(r.structuredContent.clarifications[0].candidates.length, 2);
   assert.match(spoken(r), /which one/);
 });
 
 test('create_reorder_draft with no items drafts all suggestions, one per supplier', async () => {
   const r = await call('create_reorder_draft');
   assertVoiceContract(r, 'draft all');
-  assert.equal(r.structuredContent.drafts.length, 3);
-  assert.ok(new Set(r.structuredContent.drafts.map((x) => x.draft_id)).size === 3);
+  assert.equal(r.structuredContent.drafts.length, 4);
+  assert.ok(new Set(r.structuredContent.drafts.map((x) => x.draft_id)).size === 4);
 });
 
 test('get_daily_briefing is three short sentences', async () => {
@@ -231,7 +236,7 @@ test('invalid input is rejected by schema validation', async () => {
 test('every read tool stays within 35 spoken words across varied inputs', async () => {
   const inputs = [
     ['get_low_stock', {}], ['get_low_stock', { limit: 1 }],
-    ...['milk', 'bread', 'cola', 'rice', 'beer', 'chips', 'water', 'fish sauce'].map((p) => ['get_stock_level', { product: p }]),
+    ...['milk', 'bread', 'soda', 'rice', 'coffee', 'chips', 'water', 'paper towels'].map((p) => ['get_stock_level', { product: p }]),
     ...['today', 'yesterday', 'this_week', 'last_week', 'last_7_days', 'last_30_days'].map((p) => ['get_sales_summary', { period: p }]),
     ...['today', 'yesterday', 'this_week', 'last_30_days'].map((p) => ['get_top_movers', { period: p, metric: 'revenue', limit: 10 }]),
     ['get_invoice_status', { limit: 10 }], ['get_invoice_status', { supplier: 'snacks' }],
@@ -247,12 +252,12 @@ test('tenant isolation: tenant B only sees its own shop', async () => {
   try {
     const low = await b.callTool({ name: 'get_low_stock', arguments: {} });
     assert.deepEqual(low.structuredContent.items.map((i) => i.sku), ['B-ONLY']);
-    const milk = await b.callTool({ name: 'get_stock_level', arguments: { product: 'fresh milk 1l' } });
+    const milk = await b.callTool({ name: 'get_stock_level', arguments: { product: 'whole milk' } });
     assert.equal(milk.structuredContent.status, 'not_found');
     const inv = await b.callTool({ name: 'get_invoice_status', arguments: {} });
     assert.equal(inv.structuredContent.invoices.length, 0);
     // Tenant A's confirmation token is useless for tenant B.
-    const draft = await call('create_reorder_draft', { items: [{ product: 'cola 330ml can' }] });
+    const draft = await call('create_reorder_draft', { items: [{ product: 'whole milk' }] });
     const cross = await b.callTool({ name: 'confirm_reorder', arguments: { confirmation_token: draft.structuredContent.confirmation_token } });
     assert.equal(cross.structuredContent.status, 'not_found');
     const profile = await b.readResource({ uri: 'shop://profile' });

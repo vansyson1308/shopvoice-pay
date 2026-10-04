@@ -33,10 +33,10 @@
 <tr><th>Tool</th><th>What it does</th><th>Try asking</th><th>Access</th></tr>
 <tr><td><code>get_daily_briefing</code></td><td>Yesterday's sales against the same weekday last week, low-stock count, invoices not yet synced</td><td>"Give me my shop briefing"</td><td>read</td></tr>
 <tr><td><code>get_low_stock</code></td><td>Products at or below their minimum, most urgent first, with days of cover</td><td>"What's running low?"</td><td>read</td></tr>
-<tr><td><code>get_stock_level</code></td><td>Stock of one product by name or barcode</td><td>"How much fresh milk do I have?"</td><td>read</td></tr>
+<tr><td><code>get_stock_level</code></td><td>Stock of one product by name or barcode</td><td>"How much whole milk do I have?"</td><td>read</td></tr>
 <tr><td><code>get_sales_summary</code></td><td>Revenue and units for a period, compared with the same weekday or the previous period</td><td>"How were sales yesterday compared to last Friday?"</td><td>read</td></tr>
 <tr><td><code>get_top_movers</code></td><td>Best or slowest sellers by units or revenue</td><td>"Top 5 products by revenue this week"</td><td>read</td></tr>
-<tr><td><code>get_invoice_status</code></td><td>Recent supplier invoices: arrived, matched to products, or synced to the point-of-sale system</td><td>"Did the Sunrise Beverages invoice arrive?"</td><td>read</td></tr>
+<tr><td><code>get_invoice_status</code></td><td>Recent supplier invoices: arrived, matched to products, or posted to inventory</td><td>"Did the Harbor Wholesale invoice arrive?"</td><td>read</td></tr>
 <tr><td><code>suggest_reorder</code></td><td>What to reorder per supplier and how much ((lead time + 7 days) × average daily sales − stock, rounded up to the pack size)</td><td>"What should I reorder from the dairy supplier?"</td><td>read</td></tr>
 <tr><td><code>create_reorder_draft</code></td><td>Creates purchase-order drafts, one per supplier. Nothing is ordered yet</td><td>"Draft a reorder for milk and eggs"</td><td>write</td></tr>
 <tr><td><code>confirm_reorder</code></td><td>Confirms those drafts in your shop's purchase orders</td><td>"Yes, confirm it"</td><td>write (Claude asks you first)</td></tr>
@@ -63,7 +63,7 @@
 <ul>
 <li>120 requests per minute per shop; sign-in is rate limited, and an account locks for 15 minutes after 5 wrong passwords.</li>
 <li>Lists are short by design: up to 50 low-stock items, and up to 10 top movers and invoices per call.</li>
-<li>Sales are daily totals; dates are in the shop's timezone (Asia/Ho_Chi_Minh by default).</li>
+<li>Sales are daily totals; dates are in the shop's timezone (America/New_York for the demo shop).</li>
 </ul>
 
 <h2 id="faq">FAQ</h2>
