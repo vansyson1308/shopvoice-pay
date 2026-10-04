@@ -67,6 +67,7 @@ async function createStores(payments: PaymentsSetup): Promise<{ store: ShopStore
     applicationName: 'mcp-server',
     statementTimeoutMs: Number(process.env.DB_STATEMENT_TIMEOUT_MS ?? '5000')
   });
+  if (process.env.NODE_ENV === 'production') await assertRlsBoundLogin(pool);
   const seed = await loadSeed();
   const catalogue = seed.buildSandboxCatalogue(process.env);
   const oauthStore = oauthEnabled ? new PgOAuthStore(pool, { catalogue, invitePepperB64: config.invitePepperB64 }) : null;
@@ -74,6 +75,15 @@ async function createStores(payments: PaymentsSetup): Promise<{ store: ShopStore
   if (await connectMockPayPal(payments, store, seed.DEMO_TENANT_ID).catch(() => false)) logger.info('mock_paypal_connected', { tenant_id: seed.DEMO_TENANT_ID });
   const demoShops = new PgDemoShops(pool, JSON.stringify(catalogue), payments, (tenantId) => connectMockPayPal(payments, store, tenantId));
   return { store, oauthStore, demoShops };
+}
+
+/** Tenant isolation is RLS; a superuser or BYPASSRLS login would silently skip it, so production refuses to start. */
+async function assertRlsBoundLogin(pool: { query(text: string): Promise<{ rows: Record<string, unknown>[] }> }): Promise<void> {
+  const { rows } = await pool.query('SELECT rolsuper, rolbypassrls FROM pg_roles WHERE rolname = current_user');
+  const role = rows[0];
+  if (!role || role.rolsuper === true || role.rolbypassrls === true) {
+    throw new Error('MCP database login must be a plain role under RLS (not superuser, no BYPASSRLS); see scripts/deploy/db_prepare.mjs');
+  }
 }
 
 async function main(): Promise<void> {

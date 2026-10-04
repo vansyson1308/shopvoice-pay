@@ -1,3 +1,5 @@
+import { trustedProxyHops } from '../../../packages/common/dist/index.js';
+
 export interface McpServerConfig {
   readonly host: string;
   readonly port: number;
@@ -6,7 +8,8 @@ export interface McpServerConfig {
   readonly dataBackend: 'postgres' | 'memory';
   readonly allowedOrigins: readonly string[];
   readonly allowLocalhostOrigins: boolean;
-  readonly trustProxy: boolean;
+  /** X-Forwarded-For entry (from the right) that is the viewer; 0 = ignore the header. */
+  readonly trustProxy: number;
   readonly rateLimitPerMinute: number;
   readonly authFailuresPerMinute: number;
   readonly confirmTtlSeconds: number;
@@ -46,11 +49,25 @@ function bool(value: string | undefined, fallback: boolean): boolean {
   return value === 'true' || value === '1';
 }
 
+/**
+ * Hosts that hand out the database address and password separately (a Render
+ * blueprint) set MCP_DB_HOST, MCP_DB_PORT, MCP_DB_NAME, MCP_DB_USER and MCP_DB_PASSWORD.
+ */
+export function databaseUrlFromParts(env: Record<string, string | undefined>): string {
+  const host = env.MCP_DB_HOST ?? '';
+  const user = env.MCP_DB_USER ?? '';
+  if (!host || !user) return '';
+  const port = env.MCP_DB_PORT || '5432';
+  const name = env.MCP_DB_NAME || 'shopvoice';
+  const password = env.MCP_DB_PASSWORD ? `:${encodeURIComponent(env.MCP_DB_PASSWORD)}` : '';
+  return `postgresql://${encodeURIComponent(user)}${password}@${host}:${port}/${encodeURIComponent(name)}`;
+}
+
 export function loadMcpServerConfig(env: Record<string, string | undefined>): McpServerConfig {
   const backend = env.MCP_DATA_BACKEND === 'memory' ? 'memory' : 'postgres';
-  const databaseUrl = env.MCP_DB_URL ?? env.DB_APP_URL ?? env.DATABASE_URL ?? '';
+  const databaseUrl = env.MCP_DB_URL || env.DB_APP_URL || env.DATABASE_URL || databaseUrlFromParts(env);
   if (backend === 'postgres' && !databaseUrl) {
-    throw new Error('MCP_DB_URL (or DB_APP_URL / DATABASE_URL) is required when MCP_DATA_BACKEND=postgres');
+    throw new Error('MCP_DB_URL (or DB_APP_URL / DATABASE_URL, or MCP_DB_HOST + MCP_DB_USER + MCP_DB_PASSWORD) is required when MCP_DATA_BACKEND=postgres');
   }
   const production = env.NODE_ENV === 'production';
   const publicBaseUrl = (env.PUBLIC_BASE_URL ?? '').trim().replace(/\/+$/, '');
@@ -79,7 +96,7 @@ export function loadMcpServerConfig(env: Record<string, string | undefined>): Mc
     dataBackend: backend,
     allowedOrigins: (env.MCP_ALLOWED_ORIGINS ?? '').split(',').map((s) => s.trim()).filter(Boolean),
     allowLocalhostOrigins: bool(env.MCP_ALLOW_LOCALHOST_ORIGINS, !production),
-    trustProxy: bool(env.MCP_TRUST_PROXY, false),
+    trustProxy: trustedProxyHops(env.MCP_TRUST_PROXY),
     rateLimitPerMinute: int(env.MCP_RATE_LIMIT_PER_MINUTE, 120, 1, 100_000),
     authFailuresPerMinute: int(env.MCP_AUTH_FAILURES_PER_MINUTE, 20, 1, 10_000),
     confirmTtlSeconds: int(env.MCP_CONFIRM_TTL_SECONDS, 300, 10, 3600),
