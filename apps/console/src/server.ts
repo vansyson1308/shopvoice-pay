@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
 import { dirname } from 'node:path';
 import QRCode from 'qrcode';
-import { createLogger, InMemoryTokenBucketRateLimiter } from '../../../packages/common/dist/index.js';
+import { clientIpFrom, createLogger, InMemoryTokenBucketRateLimiter, trustedProxyHops } from '../../../packages/common/dist/index.js';
 import type { LogLevel, Logger } from '../../../packages/common/dist/index.js';
 import { RulesBrain } from './brain.js';
 import { ClaudeBrain, claudeClientFromEnv } from './claude-brain.js';
@@ -47,6 +47,8 @@ export interface SimConfig {
   readonly demoProvisionUrl: string;
   /** Mark the session cookie Secure (behind HTTPS). */
   readonly secureCookies: boolean;
+  /** X-Forwarded-For entry (from the right) that is the visitor, for the per-address limiters; 0 = socket address. */
+  readonly trustProxy: number;
 }
 
 function brainKind(value: string | undefined): SimConfig['brain'] {
@@ -56,10 +58,12 @@ function brainKind(value: string | undefined): SimConfig['brain'] {
 }
 
 export function loadSimConfig(env: Record<string, string | undefined>): SimConfig {
+  // SIM_MCP_HOSTPORT is the MCP server's private-network host:port (a Render blueprint's fromService).
+  const mcpUrl = env.SIM_MCP_URL || (env.SIM_MCP_HOSTPORT ? `http://${env.SIM_MCP_HOSTPORT}/mcp` : 'http://127.0.0.1:8090/mcp');
   return {
     host: env.SIM_HOST ?? '0.0.0.0',
     port: Number.parseInt(env.SIM_PORT ?? '8091', 10),
-    mcpUrl: env.SIM_MCP_URL ?? 'http://127.0.0.1:8090/mcp',
+    mcpUrl,
     mcpToken: env.SIM_MCP_TOKEN ?? env.MCP_DEMO_TOKEN ?? '',
     brain: brainKind(env.BRAIN ?? env.SIM_BRAIN),
     awsRegion: env.AWS_REGION ?? env.AWS_DEFAULT_REGION ?? 'us-east-1',
@@ -71,10 +75,11 @@ export function loadSimConfig(env: Record<string, string | undefined>): SimConfi
     anchorDate: env.DEMO_ANCHOR_DATE ?? '',
     shopTimezone: env.SIM_SHOP_TIMEZONE ?? 'America/New_York',
     originVerifySecret: env.ORIGIN_VERIFY_SECRET ?? '',
-    ownerApiUrl: env.SIM_OWNER_API_URL ?? new URL('/owner/api', env.SIM_MCP_URL ?? 'http://127.0.0.1:8090/mcp').href,
+    ownerApiUrl: env.SIM_OWNER_API_URL ?? new URL('/owner/api', mcpUrl).href,
     demoProvisionSecret: env.DEMO_PROVISION_SECRET ?? '',
-    demoProvisionUrl: new URL('/owner/demo-shops', env.SIM_MCP_URL ?? 'http://127.0.0.1:8090/mcp').href,
-    secureCookies: env.SIM_SECURE_COOKIES === 'true'
+    demoProvisionUrl: new URL('/owner/demo-shops', mcpUrl).href,
+    secureCookies: env.SIM_SECURE_COOKIES === 'true',
+    trustProxy: trustedProxyHops(env.SIM_TRUST_PROXY)
   };
 }
 
@@ -228,7 +233,7 @@ export function createSimHandler(deps: SimDeps) {
       send(res, 200, { mode: 'visitor', ready: true });
       return;
     }
-    const ip = req.socket.remoteAddress ?? 'unknown';
+    const ip = clientIpFrom(req, config.trustProxy);
     if (!newShopLimiter.consume(ip).allowed) {
       send(res, 429, { error: 'rate_limited', message: 'Too many new demo shops from this address. Try again in a few minutes.' });
       return;
@@ -302,7 +307,7 @@ export function createSimHandler(deps: SimDeps) {
   }
 
   async function handleTurn(session: ShopSession, req: IncomingMessage, res: ServerResponse): Promise<void> {
-    const ip = req.socket.remoteAddress ?? 'unknown';
+    const ip = clientIpFrom(req, config.trustProxy);
     if (!limiter.consume(ip).allowed) {
       send(res, 429, { error: 'rate_limited', reply: 'One moment please, too many requests.' });
       return;

@@ -19,7 +19,7 @@ Meet Maria (fictional), who runs a corner store in Queens. While closing up, she
 
 ## Try it
 
-**Hosted demo:** planned (Render). It will include the sandbox buyer login and a "Reset demo" button.
+**Hosted demo:** planned (Render, see [docs/paypal/DEPLOY.md](docs/paypal/DEPLOY.md)). It will include the sandbox buyer login and a "Reset demo" button.
 
 **Locally, today (about 2 minutes, no accounts needed):**
 

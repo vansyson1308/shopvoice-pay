@@ -1,0 +1,141 @@
+# Render Blueprint for the hosted ShopVoice Pay demo (PayPal sandbox only; no live mode exists).
+#
+#   shopvoice-console  public web  - the owner console ("Try the demo")
+#   shopvoice-mcp      public web  - MCP server (/mcp, OAuth), owner API, PayPal webhooks
+#   shopvoice-db       private     - Postgres 16 on a persistent disk
+#
+# Postgres runs as a private service, not Render's managed Postgres, because the
+# migrations create roles and a BYPASSRLS role for the definer functions, which
+# requires a superuser. The MCP server itself logs in as a plain role under
+# row-level security (scripts/deploy/db_prepare.mjs creates it on every deploy,
+# and the server refuses to start as a superuser). See docs/paypal/DEPLOY.md.
+
+envVarGroups:
+  - name: shopvoice-db-credentials
+    envVars:
+      # Postgres superuser: used only by shopvoice-db and the MCP pre-deploy step (migrations).
+      - key: POSTGRES_PASSWORD
+        generateValue: true
+      # The MCP server's RLS-bound login role.
+      - key: MCP_DB_PASSWORD
+        generateValue: true
+  - name: shopvoice-shared
+    envVars:
+      # Lets the console create a private sample shop per visitor.
+      - key: DEMO_PROVISION_SECRET
+        generateValue: true
+
+services:
+  - type: pserv
+    name: shopvoice-db
+    runtime: image
+    image:
+      url: docker.io/library/postgres:16-bookworm
+    plan: 0.5c-512mb
+    region: virginia
+    disk:
+      name: pgdata
+      mountPath: /var/lib/postgresql/data
+      sizeGB: 1
+    envVars:
+      - key: POSTGRES_DB
+        value: shopvoice
+      # A subdirectory, because the disk's root holds lost+found.
+      - key: PGDATA
+        value: /var/lib/postgresql/data/pgdata
+      - fromGroup: shopvoice-db-credentials
+
+  - type: web
+    name: shopvoice-mcp
+    runtime: docker
+    dockerfilePath: ./apps/mcp-server/Dockerfile
+    dockerContext: .
+    plan: 0.5c-512mb
+    region: virginia
+    healthCheckPath: /healthz
+    preDeployCommand: node scripts/deploy/db_prepare.mjs
+    autoDeployTrigger: checksPass
+    envVars:
+      - key: MCP_PORT
+        value: "10000"
+      - key: MCP_DATA_BACKEND
+        value: postgres
+      - key: MCP_DB_HOST
+        fromService:
+          type: pserv
+          name: shopvoice-db
+          property: host
+      - key: MCP_DB_PORT
+        value: "5432"
+      - key: MCP_DB_NAME
+        value: shopvoice
+      - key: MCP_DB_USER
+        value: shopvoice_app
+      - fromGroup: shopvoice-db-credentials
+      - fromGroup: shopvoice-shared
+      # Render's proxy appends its own address after the viewer's in X-Forwarded-For.
+      - key: MCP_TRUST_PROXY
+        value: "2"
+      - key: PAYPAL_MODE
+        value: sandbox
+      - key: PAYPAL_CLIENT_ID
+        sync: false
+      - key: PAYPAL_CLIENT_SECRET
+        sync: false
+      # Webhook id for https://<shopvoice-mcp host>/webhooks/paypal (sandbox app > Webhooks)
+      - key: PAYPAL_WEBHOOK_ID
+        sync: false
+      # 32 random bytes, base64: envelope key for saved PayPal (vault) ids
+      - key: APP_MEK_B64
+        generateValue: true
+      # The console's public URL, e.g. https://shopvoice-console.onrender.com (PayPal returns there)
+      - key: CONSOLE_PUBLIC_URL
+        sync: false
+      # This service's public URL, e.g. https://shopvoice-mcp.onrender.com (enables OAuth for MCP clients)
+      - key: PUBLIC_BASE_URL
+        sync: false
+      - key: OAUTH_COOKIE_SECRET
+        generateValue: true
+      - key: SANDBOX_SUPPLIER_EMAIL
+        sync: false
+      - key: SANDBOX_SUPPLIER_EMAILS
+        sync: false
+      - key: SHOP_TIMEZONE
+        value: America/New_York
+      - key: DEMO_SHOP_IDLE_DAYS
+        value: "3"
+
+  - type: web
+    name: shopvoice-console
+    runtime: docker
+    dockerfilePath: ./apps/console/Dockerfile
+    dockerContext: .
+    plan: 0.5c-512mb
+    region: virginia
+    healthCheckPath: /healthz
+    autoDeployTrigger: checksPass
+    envVars:
+      - key: SIM_PORT
+        value: "10000"
+      # The MCP server over Render's private network
+      - key: SIM_MCP_HOSTPORT
+        fromService:
+          type: web
+          name: shopvoice-mcp
+          property: hostport
+      - fromGroup: shopvoice-shared
+      - key: SIM_SECURE_COOKIES
+        value: "true"
+      - key: SIM_TRUST_PROXY
+        value: "2"
+      # rules (offline) until Claude credentials are set; then claude-bedrock or claude-api
+      - key: BRAIN
+        value: rules
+      - key: BEDROCK_REGION
+        value: us-east-1
+      - key: BEDROCK_AWS_ACCESS_KEY_ID
+        sync: false
+      - key: BEDROCK_AWS_SECRET_ACCESS_KEY
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false

@@ -29,7 +29,7 @@ export interface OAuthConfig {
   readonly dcrPerHour: number;
   readonly loginPerMinute: number;
   readonly dcrIdleDays: number;
-  readonly trustProxy: boolean;
+  readonly trustProxy: boolean | number;
   readonly supportEmail: string;
 }
 

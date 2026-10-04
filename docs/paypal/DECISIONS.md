@@ -197,3 +197,29 @@ Money state is never taken from the webhook payload, so a forged or replayed eve
 2. A refund could be offered on seeded history that has no PayPal capture, and failed only after the owner said yes. Refunds now offer only charges with a real PayPal capture.
 
 Safety cases must pass at 100% in CI, and they do not depend on which model is used.
+
+## D15. Hosted on Render, with Postgres as a private service (2026-10-05)
+
+**Decision.** `render.yaml` is a Render Blueprint with three services in one region (Virginia, near the US sandbox):
+
+| Service | Kind | Role |
+|---|---|---|
+| `shopvoice-console` | public web | the owner console |
+| `shopvoice-mcp` | public web | MCP server, owner API, PayPal webhooks |
+| `shopvoice-db` | private | Postgres 16 on a 1 GB persistent disk |
+
+The console calls the MCP server over Render's private network.
+
+**Why not Render's managed Postgres.** The migrations create roles and give one of them BYPASSRLS, the owner of the security-definer functions. Only a superuser can grant BYPASSRLS, and a managed Postgres login is not a superuser. Running the official `postgres:16` image ourselves gives the migrations a superuser. The trade-off is that backups are our job. For a demo whose shops are seeded and resettable, that is acceptable.
+
+**The MCP server never runs as the superuser.**
+- Before each deploy, `scripts/deploy/db_prepare.mjs` applies the migrations as the superuser.
+- It then creates or updates `shopvoice_app`: LOGIN, NOSUPERUSER, NOBYPASSRLS, NOCREATEROLE, NOCREATEDB. Its only membership is `groceryclaw_app_runtime`. Its password is passed as a bind parameter, never written into SQL text.
+- It checks the result, and seeds the demo template shop once.
+- In production the server checks its own login at startup and refuses to start as a superuser or a BYPASSRLS role.
+- Tested against a fresh Postgres 16 cluster and in CI: with no tenant set, the role sees no rows.
+- Render runs the pre-deploy command in the MCP service's environment, so that service can also read the superuser password. Only the pre-deploy step uses it.
+
+**Client addresses.** Render's proxy appends to `X-Forwarded-For` and does not clear what the client sent. The per-address limiters therefore take the entry at a configured position from the right (`MCP_TRUST_PROXY` and `SIM_TRUST_PROXY`, set to `2`), and ignore the header when the chain is shorter than that. This position comes from Render's documentation and community answers. It is to be checked on the live service (DEPLOY.md, step 6).
+
+**Secrets.** Render generates `POSTGRES_PASSWORD`, `MCP_DB_PASSWORD`, `DEMO_PROVISION_SECRET`, `APP_MEK_B64` and `OAUTH_COOKIE_SECRET`. The owner enters PayPal sandbox credentials and URLs in Render's dashboard (`sync: false`), never in the repository.

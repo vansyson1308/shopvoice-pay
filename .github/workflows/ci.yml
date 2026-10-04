@@ -84,6 +84,21 @@ jobs:
       - name: Console browser e2e (Playwright, hero story)
         run: npm run test:e2e:ui
 
+  images:
+    name: Docker images (render.yaml)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build MCP server image
+        run: docker build -f apps/mcp-server/Dockerfile -t shopvoice-mcp .
+      - name: Build console image
+        run: docker build -f apps/console/Dockerfile -t shopvoice-console .
+      - name: Images carry what the deploy needs, and no secrets
+        run: |
+          docker run --rm shopvoice-mcp sh -c 'psql --version && test -f scripts/deploy/db_prepare.mjs && test -d db/migrations && test ! -e .env && test -d node_modules/pg && ! test -d node_modules/typescript'
+          docker run --rm shopvoice-console sh -c 'test -f apps/console/static/index.html && test ! -e .env && ! test -d node_modules/typescript'
+
   sandbox:
     name: PayPal sandbox integration
     runs-on: ubuntu-latest
