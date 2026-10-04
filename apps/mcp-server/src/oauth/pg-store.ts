@@ -14,7 +14,7 @@ const ms = (v: unknown): number => (v instanceof Date ? v.getTime() : new Date(s
 const iso = (v: unknown): string => (v instanceof Date ? v.toISOString() : str(v));
 
 export interface PgOAuthStoreOptions {
-  /** Sandbox catalogue (scripts/v2/gen_demo_seed.mjs buildSandboxCatalogue), both locales' profiles included. */
+  /** Sandbox catalogue (scripts/gen_demo_seed.mjs buildSandboxCatalogue), both locales' profiles included. */
   readonly catalogue: unknown;
   /** Base64 invite pepper (INVITE_PEPPER_B64); linking is disabled when empty. */
   readonly invitePepperB64: string;

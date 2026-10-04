@@ -1,14 +1,10 @@
-import type { RuntimeEnvironment, TelegramConfig, TelegramMode } from './types.js';
+import type { RuntimeEnvironment } from './types.js';
 
 export interface BaseConfig {
   readonly nodeEnv: RuntimeEnvironment;
   readonly logLevel: 'debug' | 'info' | 'warn' | 'error';
   readonly port: number;
   readonly host: string;
-}
-
-export interface GatewayConfig extends BaseConfig {
-  readonly telegram: TelegramConfig;
 }
 
 export interface DatabaseConfig {
@@ -52,11 +48,6 @@ function parseLogLevel(value: string | undefined): BaseConfig['logLevel'] {
   throw new Error(`LOG_LEVEL must be one of debug|info|warn|error, received: ${level}`);
 }
 
-function parseBoolean(value: string | undefined, defaultValue: boolean): boolean {
-  if (value === undefined) return defaultValue;
-  return value === 'true';
-}
-
 function parsePositiveInt(value: string | undefined, field: string, fallback: number): number {
   const resolved = value ?? String(fallback);
   const parsed = Number(resolved);
@@ -64,15 +55,6 @@ function parsePositiveInt(value: string | undefined, field: string, fallback: nu
     throw new Error(`${field} must be a positive integer, received: ${resolved}`);
   }
   return parsed;
-}
-
-function parseTelegramMode(value: string | undefined): TelegramMode {
-  const mode = value ?? 'polling';
-  if (mode === 'polling' || mode === 'webhook') {
-    return mode;
-  }
-
-  throw new Error(`TELEGRAM_MODE must be one of polling|webhook, received: ${mode}`);
 }
 
 function parseDbUrl(value: string, field: 'DB_APP_URL' | 'DB_ADMIN_URL'): string {
@@ -103,7 +85,8 @@ export function loadDatabaseConfig(envInput?: Record<string, string | undefined>
 }
 
 export function loadBaseConfig(opts: {
-  readonly serviceName: 'gateway' | 'admin' | 'worker';
+  /** Used as the env prefix: <SERVICE>_PORT, <SERVICE>_HOST. */
+  readonly serviceName: string;
   readonly env?: Record<string, string | undefined>;
   readonly defaultPort: number;
   readonly defaultHost: string;
@@ -122,28 +105,5 @@ export function loadBaseConfig(opts: {
     logLevel: parseLogLevel(env.LOG_LEVEL),
     port,
     host
-  };
-}
-
-export function loadGatewayConfig(envInput?: Record<string, string | undefined>): GatewayConfig {
-  const env = envInput ?? process.env;
-  const base = loadBaseConfig({
-    serviceName: 'gateway',
-    defaultHost: '0.0.0.0',
-    defaultPort: 3000,
-    env
-  });
-
-  const botToken = env.TELEGRAM_BOT_TOKEN ?? '';
-  const mode = parseTelegramMode(env.TELEGRAM_MODE);
-
-  return {
-    ...base,
-    telegram: {
-      botToken,
-      mode,
-      ...(env.TELEGRAM_WEBHOOK_SECRET ? { webhookSecret: env.TELEGRAM_WEBHOOK_SECRET } : {}),
-      ...(env.TELEGRAM_WEBHOOK_URL ? { webhookUrl: env.TELEGRAM_WEBHOOK_URL } : {})
-    }
   };
 }

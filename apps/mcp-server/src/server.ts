@@ -23,7 +23,7 @@ interface DemoSeedModule {
 }
 
 async function loadSeed(): Promise<DemoSeedModule> {
-  const seedUrl = new URL('../../../scripts/v2/gen_demo_seed.mjs', import.meta.url);
+  const seedUrl = new URL('../../../scripts/gen_demo_seed.mjs', import.meta.url);
   return (await import(seedUrl.href)) as DemoSeedModule;
 }
 
