@@ -162,3 +162,22 @@ Money state is never taken from the webhook payload, so a forged or replayed eve
 - Shops are created only server-to-server, with the shared secret. There is a global cap (about 120 per hour) on the MCP server, and the console allows 3 per visitor IP in a burst, then 1 every 10 minutes.
 - In Postgres, creation, reset and cleanup are SECURITY DEFINER functions (migration 023) that act on sample shops only: `sandbox_reset` returns false for a real shop, and cleanup deletes only `kind = 'visitor'` shops.
 - Without the secret, the console serves the single shop behind `SIM_MCP_TOKEN`, as before.
+
+## D13. Claude as the console brain; voice approval matched by code (2026-10-05)
+
+**Decision.** `BRAIN` selects the brain:
+- `claude-bedrock` (Claude in Amazon Bedrock, `AnthropicBedrockMantle`, `anthropic.claude-opus-5-5`);
+- `claude-api` (Anthropic API, `claude-opus-5-5`);
+- `rules` (offline, deterministic; used by CI and as the automatic fallback when Claude cannot be reached, labelled in the reply).
+
+**Settings.**
+- Effort defaults to `low` for voice latency; Opus 5.5 always thinks.
+- Thinking blocks are sent back unchanged on tool-use turns.
+- System and tools sit behind one explicit cache breakpoint (Bedrock has no automatic caching).
+- Bedrock credentials come from their own `BEDROCK_*` variables, so other `AWS_*` values in a deployment are never used for Claude. The IAM permission is `bedrock-mantle:CreateInference` on the model ARNs.
+
+**The model only proposes.**
+- The host fills in the reorder token itself (Claude never sees it; tested) and runs `confirm_reorder` only on a turn where the owner said yes.
+- When a confirmed order waits for approval, the host asks: "Say yes to approve $142 to Valley Farm Eggs, or no to leave it unpaid."
+- The very next turn is matched by console code: a short yes approves through the owner API (`owner_voice`), and a short no declines. No model call and no MCP tool is involved.
+- Any other utterance drops the question, so a later stray "yes" cannot approve anything; the payment waits on the console card.

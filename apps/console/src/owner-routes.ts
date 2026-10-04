@@ -101,6 +101,9 @@ export function createOwnerRoutes(config: OwnerRoutesConfig, logger: Logger, fet
   }
 
   return {
+    /** Direct owner API call for host code (voice approvals). */
+    api: call,
+
     /** /api/owner/<path> -> owner API <path>. Caller has already checked console access. */
     async proxy(token: string, req: IncomingMessage, res: ServerResponse, url: URL): Promise<number> {
       const method = req.method ?? 'GET';
