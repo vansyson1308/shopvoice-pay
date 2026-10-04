@@ -333,7 +333,22 @@ export class PaymentsService {
    */
   async approve(ctx: ServiceContext, approvalToken: string, by: ApprovedBy): Promise<{ payment: PublicPayment; payerActionUrl: string | null; speech: string }> {
     const payment = await ctx.repo.findPaymentByApprovalHash(sha256Hex(approvalToken));
-    if (!payment || payment.status !== 'pending_approval') throw new PaymentFlowError('approval_not_found', 'That approval is not waiting anymore');
+    return this.approvePayment(ctx, payment, by);
+  }
+
+  /**
+   * For channels that already authenticated the owner (the ShopVoice console's
+   * approval card, or a spoken "yes" matched by console server code): approve
+   * by ledger id. The same rules re-check and expiry apply as with a token.
+   */
+  async approveById(ctx: ServiceContext, paymentId: string, by: ApprovedBy): Promise<{ payment: PublicPayment; payerActionUrl: string | null; speech: string }> {
+    const payment = await ctx.repo.getPayment(paymentId);
+    if (payment && payment.decision !== 'step_up') throw new PaymentFlowError('approval_not_found', 'That payment does not need approval');
+    return this.approvePayment(ctx, payment, by);
+  }
+
+  private async approvePayment(ctx: ServiceContext, payment: PaymentRecord | null, by: ApprovedBy): Promise<{ payment: PublicPayment; payerActionUrl: string | null; speech: string }> {
+    if (!payment || payment.status !== 'pending_approval' || payment.approvedBy) throw new PaymentFlowError('approval_not_found', 'That approval is not waiting anymore');
     if (!payment.approvalExpiresAt || Date.parse(payment.approvalExpiresAt) <= this.now()) throw new PaymentFlowError('approval_expired', 'That approval expired; ask me to reorder again');
     const name = ctx.supplierName(payment.supplierCode);
     const recheck = await this.evaluate(ctx, this.draftOf(payment, name), payment.id);
@@ -367,7 +382,16 @@ export class PaymentsService {
 
   /** The owner declined a step-up. Nothing was held, so nothing moves. */
   async decline(ctx: ServiceContext, approvalToken: string): Promise<PublicPayment> {
-    const payment = await ctx.repo.findPaymentByApprovalHash(sha256Hex(approvalToken));
+    return this.declinePayment(ctx, await ctx.repo.findPaymentByApprovalHash(sha256Hex(approvalToken)));
+  }
+
+  async declineById(ctx: ServiceContext, paymentId: string): Promise<PublicPayment> {
+    const payment = await ctx.repo.getPayment(paymentId);
+    if (payment && payment.decision !== 'step_up') throw new PaymentFlowError('approval_not_found', 'That payment does not need approval');
+    return this.declinePayment(ctx, payment);
+  }
+
+  private async declinePayment(ctx: ServiceContext, payment: PaymentRecord | null): Promise<PublicPayment> {
     if (!payment || payment.status !== 'pending_approval') throw new PaymentFlowError('approval_not_found', 'That approval is not waiting anymore');
     const declined = await ctx.repo.record(payment.id, { action: { kind: 'decline' }, patch: { approvalTokenHash: null, approvalExpiresAt: null }, event: { kind: 'declined', amountMinor: payment.requestedMinor, actor: 'owner', reason: 'Declined by the owner', correlationId: ctx.correlationId } });
     return toPublicPayment(declined);

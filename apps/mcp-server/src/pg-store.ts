@@ -242,6 +242,12 @@ export class PgShopStore implements ShopStore {
     return { tenantId: str(row.tenant_id), tokenId: str(row.token_id) };
   }
 
+  async resolvePaymentTenant(paymentId: string): Promise<string | null> {
+    if (!/^[0-9a-f-]{36}$/i.test(paymentId)) return null;
+    const { rows } = await this.pool.query('SELECT resolve_payment_tenant($1::uuid) AS tenant_id', [paymentId]);
+    return rows[0]?.tenant_id ? str(rows[0].tenant_id) : null;
+  }
+
   ping(): Promise<boolean> {
     return dbPing(this.pool);
   }

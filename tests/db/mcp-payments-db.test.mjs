@@ -99,3 +99,22 @@ test('delivery and refund write captures, releases, payouts and refunds to the l
   assert.equal(p.deliveries, 1);
   assert.deepEqual(p.kinds, ['policy_evaluated', 'authorized', 'captured', 'voided', 'payout_sent', 'refunded']);
 });
+
+test('webhooks can map a payment id to its tenant, and nothing else, without tenant context', { skip }, async () => {
+  const store = new PgShopStore(runtimePool(admin));
+  const { rows } = await query(admin, "SELECT id FROM supplier_payments WHERE tenant_id = $1 AND supplier_code = 'SUP-DAIRY' AND created_at >= $2", [DEMO_TENANT_ID, startedAt]);
+  assert.equal(await store.resolvePaymentTenant(rows[0].id), DEMO_TENANT_ID);
+  assert.equal(await store.resolvePaymentTenant('00000000-0000-4000-8000-000000000000'), null);
+  assert.equal(await store.resolvePaymentTenant('not-a-uuid'), null);
+  // The runtime role still cannot read payments without tenant context.
+  const c = await admin.connect();
+  try {
+    await c.query('BEGIN');
+    await c.query('SET LOCAL ROLE groceryclaw_app_runtime');
+    const hidden = await c.query('SELECT count(*)::int AS n FROM supplier_payments');
+    assert.equal(hidden.rows[0].n, 0);
+  } finally {
+    await c.query('ROLLBACK');
+    c.release();
+  }
+});

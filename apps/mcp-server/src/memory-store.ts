@@ -282,6 +282,11 @@ export class MemoryShopStore implements ShopStore {
     return tenantId ? { tenantId, tokenId: tokenHash.slice(0, 12) } : null;
   }
 
+  async resolvePaymentTenant(paymentId: string): Promise<string | null> {
+    for (const [tenantId, data] of this.paymentsData) if (data.payments.has(paymentId)) return tenantId;
+    return null;
+  }
+
   async ping(): Promise<boolean> {
     return true;
   }
