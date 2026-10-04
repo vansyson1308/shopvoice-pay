@@ -56,3 +56,29 @@ test('dbPing returns true on successful SELECT and false on timeout/failure', as
   assert.equal(await dbPing(badPool, 50), false);
   assert.equal(await dbPing(slowPool, 1), false);
 });
+
+test('runTenantScopedTransaction keeps application errors (codes intact) and redacts driver errors', async () => {
+  const { runTenantScopedTransaction, isApplicationError } = await import('../../packages/common/dist/index.js');
+  class LedgerLikeError extends Error {
+    constructor() {
+      super('cannot capture more than is held');
+      this.code = 'over_capture';
+    }
+  }
+  const statements = [];
+  const client = { query: async (sql) => { statements.push(String(sql)); return { rows: [] }; }, release() {} };
+  const pool = { connect: async () => client, query: client.query, end: async () => {} };
+  await assert.rejects(
+    runTenantScopedTransaction({ pool, tenantId: 't', work: async () => { throw new LedgerLikeError(); } }),
+    (e) => e instanceof LedgerLikeError && e.code === 'over_capture'
+  );
+  assert.ok(statements.includes('ROLLBACK'));
+  const driverError = Object.assign(new Error('connect failed postgres://app:secret@db/x'), { severity: 'FATAL' });
+  await assert.rejects(
+    runTenantScopedTransaction({ pool, tenantId: 't', work: async () => { throw driverError; } }),
+    (e) => !(e.message.includes('secret')) && !('severity' in e)
+  );
+  assert.equal(isApplicationError(new Error('plain')), false);
+  assert.equal(isApplicationError('nope'), false);
+  assert.equal(isApplicationError(new LedgerLikeError()), true);
+});

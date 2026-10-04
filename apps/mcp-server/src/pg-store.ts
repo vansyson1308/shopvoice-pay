@@ -5,6 +5,8 @@ import type {
   ShopRepository, ShopStore, SkuSales, StockRow, Supplier
 } from './store.js';
 import { ShopDataError } from './store.js';
+import { PgPaymentsRepository } from './ledger/pg-ledger.js';
+import type { PaymentsRepository } from './ledger/types.js';
 
 type Queryable = Pick<PgClientLike, 'query'>;
 
@@ -15,8 +17,11 @@ const strOrNull = (v: unknown): string | null => (v === null || v === undefined 
 class PgShopRepository implements ShopRepository {
   private profile: ShopProfile | null = null;
   private todayValue: string | null = null;
+  readonly payments: PaymentsRepository;
 
-  constructor(private readonly client: Queryable, private readonly tenantId: string) {}
+  constructor(private readonly client: Queryable, private readonly tenantId: string) {
+    this.payments = new PgPaymentsRepository(client);
+  }
 
   async getProfile(): Promise<ShopProfile> {
     if (this.profile) return this.profile;
