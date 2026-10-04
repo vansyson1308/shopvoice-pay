@@ -17,7 +17,7 @@
     "composite": true,
     "baseUrl": ".",
     "paths": {
-      "@groceryclaw/common": [
+      "@shopvoice/common": [
         "packages/common/src/index.ts"
       ]
     }

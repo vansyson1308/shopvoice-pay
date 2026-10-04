@@ -5,13 +5,11 @@ WORKDIR /app
 COPY package.json package-lock.json tsconfig.base.json tsconfig.build.json types-node-compat.d.ts ./
 COPY apps ./apps
 COPY packages ./packages
-# The demo dataset generator backs MCP_DATA_BACKEND=memory (offline demos).
-COPY scripts/gen_demo_seed.mjs ./scripts/gen_demo_seed.mjs
 
 RUN npm ci --no-audit --no-fund
-RUN npx tsc -b apps/mcp-server
+RUN npx tsc -b apps/console
 
 ENV NODE_ENV=production
-EXPOSE 8090
+EXPOSE 8091
 USER node
-CMD ["node", "apps/mcp-server/dist/server.js"]
+CMD ["node", "apps/console/dist/server.js"]

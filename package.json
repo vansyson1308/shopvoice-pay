@@ -1,0 +1,41 @@
+{
+  "name": "shopvoice-pay",
+  "private": true,
+  "version": "0.1.0",
+  "description": "ShopVoice Pay: a voice-first purchasing agent for independent grocers that pays suppliers through PayPal, within spending rules the owner sets.",
+  "license": "MIT",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "tsc -b tsconfig.build.json",
+    "typecheck": "tsc -b tsconfig.build.json",
+    "clean": "rm -rf apps/*/dist packages/*/dist",
+    "lint": "node tools/lint.mjs",
+    "format:check": "node tools/format-check.mjs",
+    "sql:guard": "node tools/sql-interpolation-guard.mjs",
+    "test": "npm run build && node --test tests/unit/*.test.mjs",
+    "test:db": "node --test --test-concurrency=1 tests/db/*.test.mjs",
+    "test:sandbox": "npm run build && node --test --test-concurrency=1 tests/sandbox/*.test.mjs",
+    "spike": "npm run build && node scripts/paypal/spike.mjs",
+    "db:migrate": "node scripts/db_migrate.mjs",
+    "db:rollback": "node scripts/db_rollback.mjs",
+    "db:status": "node scripts/db_status.mjs",
+    "db:seed": "node scripts/db_seed.mjs",
+    "mcp:token": "node scripts/create_mcp_token.mjs",
+    "start:mcp": "node apps/mcp-server/dist/server.js",
+    "start:console": "node apps/console/dist/server.js",
+    "demo:e2e": "npm run build && node scripts/demo/e2e_voice_flow.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "devDependencies": {
+    "fast-glob": "^3.3.2",
+    "typescript": "^5.9.3"
+  },
+  "dependencies": {
+    "pg": "^8.13.1"
+  }
+}

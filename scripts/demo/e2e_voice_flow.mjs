@@ -49,7 +49,7 @@ export async function startLocalStack() {
     env: { ...common, MCP_PORT: String(mcpPort), MCP_HOST: '127.0.0.1', MCP_DATA_BACKEND: 'memory', MCP_DEMO_TOKEN: token },
     stdio: ['ignore', 'ignore', 'inherit']
   });
-  const sim = spawn('node', ['apps/alexa-sim/dist/server.js'], {
+  const sim = spawn('node', ['apps/console/dist/server.js'], {
     env: { ...common, SIM_PORT: String(simPort), SIM_HOST: '127.0.0.1', SIM_MCP_URL: `http://127.0.0.1:${mcpPort}/mcp`, SIM_MCP_TOKEN: token, SIM_BRAIN: process.env.SIM_BRAIN ?? 'rules' },
     stdio: ['ignore', 'ignore', 'inherit']
   });

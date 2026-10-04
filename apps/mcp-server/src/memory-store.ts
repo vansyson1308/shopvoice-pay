@@ -1,5 +1,5 @@
 // In-memory ShopStore for unit tests, CI without Postgres, and offline demos.
-// Data comes from a MemoryDataset (see scripts/v2/gen_demo_seed.mjs
+// Data comes from a MemoryDataset (see scripts/gen_demo_seed.mjs
 // buildDemoDataset, which mirrors the SQL demo seed). Each tenant only ever
 // sees its own dataset entry, mirroring RLS.
 import { createHash, randomUUID } from 'node:crypto';
