@@ -29,5 +29,7 @@ Every commit after the import. The table is updated at each milestone; `git log 
 | 2026-10-04 | M0 docs | README, NOTICE, SPIKE, DECISIONS, ARCHITECTURE, BUILD_LOG |
 | 2026-10-04 | Add the spending policy engine (PR #2) | Deterministic autopay / step-up / block rules, substitution check, ≥95% branch-coverage gate |
 | 2026-10-04 | Day-1 sandbox spike (PR #3) | Real sandbox evidence, automated sandbox buyer approval, mock aligned with the sandbox, settlement decision confirmed |
+| 2026-10-04 | Ledger (PR #4) | Migration 019 with RLS, ledger state machine with a property test, memory/Postgres payments repository |
+| 2026-10-04 | PaymentsService (PR #5) | Vault onboarding, pay within policy, step-up approval, capture on delivery, refunds, Payouts settlement; hero money path verified in sandbox |
 
 Planned for the following milestones (see `docs/paypal/BUILD_LOG.md`): spending policy engine, payment ledger and migration 019, vault onboarding, paying confirm_reorder, delivery capture with 3-way match, refunds, the LLM brain with safety evals, the console redesign with AG Grid, the simulated Cart API supplier agent, Agent Toolkit integration, and the hosted demo.
