@@ -1,0 +1,294 @@
+{
+  "mode": "sandbox",
+  "base_url": "https://api-m.sandbox.paypal.com",
+  "ran_at": "2026-10-04T17:46:06.094Z",
+  "supplier_email_domain": "business.example.com",
+  "summary": {
+    "pass": 15,
+    "info": 6
+  },
+  "results": [
+    {
+      "id": "S1",
+      "title": "OAuth client-credentials token",
+      "status": "pass",
+      "ms": 900,
+      "evidence": {
+        "token": "obtained",
+        "event_types_endpoint": "ok"
+      }
+    },
+    {
+      "id": "S2.1",
+      "title": "Buyer-approved AUTHORIZE order with supplier as payee",
+      "status": "pass",
+      "ms": 40606,
+      "evidence": {
+        "order": "98H1…44",
+        "created_status": "PAYER_ACTION_REQUIRED",
+        "link_rel": [
+          "self",
+          "payer-action"
+        ],
+        "authorization_status": "CREATED",
+        "create_time": "2026-10-04T17:43:09Z",
+        "expiration_time": "2026-11-02T17:43:09Z"
+      }
+    },
+    {
+      "id": "S2.2",
+      "title": "Partial capture (final_capture:false) then void the remainder",
+      "status": "info",
+      "ms": 3736,
+      "evidence": {
+        "capture": "60P1…5K",
+        "capture_status": "COMPLETED",
+        "captured": {
+          "currency_code": "USD",
+          "value": "84.00"
+        },
+        "auth_after_capture": "PARTIALLY_CAPTURED",
+        "void": "rejected",
+        "void_error": "PERMISSION_DENIED",
+        "description": "You do not have permission to access or perform operations on this resource.",
+        "auth_after_void": "PARTIALLY_CAPTURED"
+      }
+    },
+    {
+      "id": "S2.3",
+      "title": "Reauthorize inside the 3-day honor period (expected rejection)",
+      "status": "pass",
+      "ms": 552,
+      "evidence": {
+        "rejected_with": "REAUTHORIZATION_TOO_SOON"
+      }
+    },
+    {
+      "id": "S2.8",
+      "title": "Supplier-payee authorization: partial capture with final_capture:true releases the rest?",
+      "status": "pass",
+      "ms": 41901,
+      "evidence": {
+        "capture_status": "COMPLETED",
+        "captured": {
+          "currency_code": "USD",
+          "value": "84.00"
+        },
+        "auth_after": "CAPTURED"
+      }
+    },
+    {
+      "id": "S2.9",
+      "title": "Supplier-payee authorization: void untouched (API caller is not the payee)",
+      "status": "info",
+      "ms": 40818,
+      "evidence": {
+        "void": "rejected",
+        "void_error": "PERMISSION_DENIED",
+        "description": "You do not have permission to access or perform operations on this resource.",
+        "auth_after": "CREATED"
+      }
+    },
+    {
+      "id": "S3.1",
+      "title": "Vault setup token -> buyer approval -> payment token (vault id)",
+      "status": "pass",
+      "ms": 19769,
+      "evidence": {
+        "setup_status": "PAYER_ACTION_REQUIRED",
+        "approve_link": "/agreements/approve",
+        "vault_id": "0047…0h",
+        "customer": "PVjq…dS",
+        "payer_email_present": true
+      }
+    },
+    {
+      "id": "S3.vault-capture-payee",
+      "title": "Vaulted CAPTURE order, payee=supplier (third party)",
+      "status": "info",
+      "ms": 1295,
+      "evidence": {
+        "accepted": false,
+        "http_status": 422,
+        "issue": "BILLING_AGREEMENT_NOT_FOUND",
+        "debug_id": "f6843248f81d9"
+      }
+    },
+    {
+      "id": "S3.vault-authorize-payee",
+      "title": "Vaulted AUTHORIZE order, payee=supplier (third party)",
+      "status": "info",
+      "ms": 965,
+      "evidence": {
+        "accepted": false,
+        "http_status": 422,
+        "issue": "BILLING_AGREEMENT_NOT_FOUND",
+        "debug_id": "f7579910c0f08"
+      }
+    },
+    {
+      "id": "S3.vault-capture-platform",
+      "title": "Vaulted CAPTURE order, payee=platform (API caller)",
+      "status": "info",
+      "ms": 2074,
+      "evidence": {
+        "accepted": true,
+        "order_status": "COMPLETED",
+        "authorization": null,
+        "capture": "COMPLETED"
+      }
+    },
+    {
+      "id": "S3.vault-authorize-platform",
+      "title": "Vaulted AUTHORIZE order, payee=platform (API caller)",
+      "status": "info",
+      "ms": 1881,
+      "evidence": {
+        "accepted": true,
+        "order_status": "COMPLETED",
+        "authorization": "CREATED",
+        "capture": null
+      }
+    },
+    {
+      "id": "S2.4",
+      "title": "Full capture of an authorization",
+      "status": "pass",
+      "ms": 4600,
+      "evidence": {
+        "capture_status": "COMPLETED",
+        "amount": {
+          "currency_code": "USD",
+          "value": "84.00"
+        },
+        "auth_after": "CAPTURED"
+      }
+    },
+    {
+      "id": "S2.5",
+      "title": "Partial capture with final_capture:true, then void the remainder",
+      "status": "pass",
+      "ms": 5433,
+      "evidence": {
+        "capture_status": "COMPLETED",
+        "captured": {
+          "currency_code": "USD",
+          "value": "70.00"
+        },
+        "auth_after_capture": "CAPTURED",
+        "void": "rejected",
+        "void_error": "PREVIOUSLY_CAPTURED",
+        "auth_after_void": "CAPTURED"
+      }
+    },
+    {
+      "id": "S2.10",
+      "title": "Platform authorization: partial capture (final_capture:false), then void the remainder",
+      "status": "pass",
+      "ms": 5531,
+      "evidence": {
+        "captured": {
+          "currency_code": "USD",
+          "value": "70.00"
+        },
+        "auth_after_capture": "PARTIALLY_CAPTURED",
+        "void": "accepted",
+        "void_error": null,
+        "auth_after_void": "VOIDED"
+      }
+    },
+    {
+      "id": "S2.6",
+      "title": "Void an untouched authorization",
+      "status": "pass",
+      "ms": 3800,
+      "evidence": {
+        "auth_after_void": "VOIDED",
+        "capture_after_void": "rejected",
+        "error": "AUTHORIZATION_VOIDED"
+      }
+    },
+    {
+      "id": "S2.7",
+      "title": "Idempotency: same PayPal-Request-Id twice moves money once",
+      "status": "pass",
+      "ms": 5788,
+      "evidence": {
+        "same_capture_id": true,
+        "auth_after": "PARTIALLY_CAPTURED"
+      }
+    },
+    {
+      "id": "S4",
+      "title": "Refund a capture: partial, then the rest",
+      "status": "pass",
+      "ms": 4445,
+      "evidence": {
+        "partial": {
+          "status": "COMPLETED",
+          "amount": {
+            "currency_code": "USD",
+            "value": "12.00"
+          }
+        },
+        "rest": {
+          "status": "COMPLETED",
+          "amount": {
+            "currency_code": "USD",
+            "value": "72.00"
+          }
+        },
+        "third_refund": "rejected",
+        "error": "CAPTURE_FULLY_REFUNDED"
+      }
+    },
+    {
+      "id": "S5",
+      "title": "Payouts: platform account -> supplier sandbox business account",
+      "status": "pass",
+      "ms": 32130,
+      "evidence": {
+        "created": "PENDING",
+        "final_batch_status": "SUCCESS",
+        "waited_s": 31,
+        "item_status": "SUCCESS"
+      }
+    },
+    {
+      "id": "S6.1",
+      "title": "Webhook registration for the six event types",
+      "status": "pass",
+      "ms": 378,
+      "evidence": {
+        "webhook_id": "5MH2…4A",
+        "events": [
+          "CHECKOUT.ORDER.APPROVED",
+          "PAYMENT.AUTHORIZATION.CREATED",
+          "PAYMENT.AUTHORIZATION.VOIDED",
+          "PAYMENT.CAPTURE.COMPLETED",
+          "PAYMENT.CAPTURE.REFUNDED",
+          "VAULT.PAYMENT-TOKEN.CREATED"
+        ]
+      }
+    },
+    {
+      "id": "S6.2",
+      "title": "verify-webhook-signature rejects a forged delivery",
+      "status": "pass",
+      "ms": 435,
+      "evidence": {
+        "verification_status": "FAILURE",
+        "webhook_id_kind": "registered"
+      }
+    },
+    {
+      "id": "S6.3",
+      "title": "Delete the spike webhook (the URL is a placeholder)",
+      "status": "pass",
+      "ms": 264,
+      "evidence": {
+        "deleted": true
+      }
+    }
+  ]
+}

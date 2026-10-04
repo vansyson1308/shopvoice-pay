@@ -27,5 +27,7 @@ Every commit after the import. The table is updated at each milestone; `git log 
 | 2026-10-04 | Add CI | GitHub Actions: lint, typecheck, unit, Postgres RLS, e2e, opt-in sandbox job |
 | 2026-10-04 | Add PayPal payments client with mock mode, sandbox spike and tests | OAuth, Orders v2 AUTHORIZE, Payments v2 capture/void/reauthorize/refund, Vault v3, Payouts, webhook verification, idempotency + retries, mock PayPal, spike runners |
 | 2026-10-04 | M0 docs | README, NOTICE, SPIKE, DECISIONS, ARCHITECTURE, BUILD_LOG |
+| 2026-10-04 | Add the spending policy engine (PR #2) | Deterministic autopay / step-up / block rules, substitution check, ≥95% branch-coverage gate |
+| 2026-10-04 | Day-1 sandbox spike (PR #3) | Real sandbox evidence, automated sandbox buyer approval, mock aligned with the sandbox, settlement decision confirmed |
 
 Planned for the following milestones (see `docs/paypal/BUILD_LOG.md`): spending policy engine, payment ledger and migration 019, vault onboarding, paying confirm_reorder, delivery capture with 3-way match, refunds, the LLM brain with safety evals, the console redesign with AG Grid, the simulated Cart API supplier agent, Agent Toolkit integration, and the hosted demo.

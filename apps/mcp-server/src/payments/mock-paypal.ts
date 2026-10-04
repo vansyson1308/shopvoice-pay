@@ -5,7 +5,8 @@
 // authorization capture/void/expiry, refunds, vault tokens) and honours
 // PayPal-Request-Id: a repeated key returns the stored response without
 // moving money again. Behaviour that the sandbox spike confirmed or corrected
-// is noted inline with "SPIKE §n" (docs/paypal/SPIKE.md).
+// is noted inline with "SPIKE <check id>" (docs/paypal/SPIKE.md); those
+// behaviours were observed in the real sandbox on 2026-10-04.
 import { createHmac, randomBytes } from 'node:crypto';
 import type { FetchInitLike, FetchLike, FetchResponseLike } from './paypal-client.js';
 import { fromPayPalValue, toPayPalValue } from './money.js';
@@ -29,7 +30,11 @@ export interface MockPayPalOptions {
   readonly now?: () => number;
   /** Where payer-action / approve links point (the console's simulated approval page). */
   readonly approveBaseUrl?: string;
-  /** How the fake treats a vaulted order with a third-party payee. SPIKE §3 decides the real answer. */
+  /**
+   * A vaulted order naming a third-party payee. The sandbox rejects it
+   * (SPIKE S3.vault-*-payee: 422 BILLING_AGREEMENT_NOT_FOUND); 'allowed'
+   * models PayPal's partner (Platforms) setup, which we do not have.
+   */
   readonly vaultThirdPartyPayee?: 'allowed' | 'rejected';
   readonly webhookSecret?: string;
 }
@@ -44,6 +49,8 @@ interface MockAuthorization {
   createdAt: number;
   expiresAt: number;
   captureIds: string[];
+  /** The order named a payee other than the API caller. */
+  thirdPartyPayee: boolean;
   invoiceId?: string;
   customId?: string;
 }
@@ -86,6 +93,10 @@ class HttpError extends Error {
   constructor(readonly status: number, readonly body: Record<string, unknown>) {
     super(String(body.name));
   }
+}
+
+function permissionDenied(): HttpError {
+  return new HttpError(403, { name: 'NOT_AUTHORIZED', message: 'Authorization failed due to insufficient permissions.', details: [{ issue: 'PERMISSION_DENIED', description: 'You do not have permission to access or perform operations on this resource.' }] });
 }
 
 function unprocessable(issue: string, description: string): HttpError {
@@ -156,7 +167,7 @@ export class MockPayPal {
   constructor(options: MockPayPalOptions = {}) {
     this.now = options.now ?? (() => Date.now());
     this.approveBaseUrl = (options.approveBaseUrl ?? 'https://paypal.mock').replace(/\/+$/, '');
-    this.vaultThirdPartyPayee = options.vaultThirdPartyPayee ?? 'allowed';
+    this.vaultThirdPartyPayee = options.vaultThirdPartyPayee ?? 'rejected';
     this.webhookSecret = options.webhookSecret ?? randomBytes(16).toString('hex');
   }
 
@@ -345,7 +356,8 @@ export class MockPayPal {
     const vaultId = typeof source?.vault_id === 'string' ? source.vault_id : null;
     if (vaultId && !this.paymentTokens.has(vaultId)) throw unprocessable('INVALID_RESOURCE_ID', 'vault_id is not a known payment token');
     if (vaultId && unit.payee && this.vaultThirdPartyPayee === 'rejected') {
-      throw unprocessable('PAYEE_NOT_CONSENTED', 'Payee does not have appropriate consent to allow the API caller to process this type of transaction on their behalf.');
+      // SPIKE S3.vault-capture-payee / S3.vault-authorize-payee
+      throw unprocessable('BILLING_AGREEMENT_NOT_FOUND', 'The requested billing agreement token was not found.');
     }
     const order: MockOrder = {
       id: id('', 17),
@@ -390,6 +402,7 @@ export class MockPayPal {
     const auth: MockAuthorization = {
       id: id('', 17),
       orderId: order.id,
+      thirdPartyPayee: order.purchaseUnit.payee !== undefined,
       status: 'CREATED',
       currency: order.currency,
       authorizedMinor: order.amountMinor,
@@ -435,7 +448,10 @@ export class MockPayPal {
 
   private voidAuthorization(authorizationId: string): StoredResponse {
     const auth = this.authorization(authorizationId);
-    if (auth.status === 'CAPTURED') throw unprocessable('AUTHORIZATION_ALREADY_CAPTURED', 'Authorization has been previously captured and hence cannot be voided.');
+    // Only the payee may void: SPIKE S2.2/S2.9 (403 NOT_AUTHORIZED, even before any capture).
+    if (auth.thirdPartyPayee) throw permissionDenied();
+    // SPIKE S2.5: void after a final capture.
+    if (auth.status === 'CAPTURED') throw unprocessable('PREVIOUSLY_CAPTURED', 'Authorization has been previously captured and hence cannot be voided.');
     if (auth.status === 'VOIDED') throw unprocessable('PREVIOUSLY_VOIDED', 'Authorization has been previously voided and hence cannot be voided again.');
     if (auth.status === 'EXPIRED') throw unprocessable('AUTHORIZATION_EXPIRED', 'An expired authorization cannot be voided.');
     auth.status = 'VOIDED';
@@ -444,9 +460,10 @@ export class MockPayPal {
 
   private reauthorize(authorizationId: string, body: Record<string, unknown>): StoredResponse {
     const auth = this.authorization(authorizationId);
-    if (auth.status !== 'CREATED') throw unprocessable('REAUTHORIZATION_NOT_SUPPORTED', 'Only a fully uncaptured authorization can be reauthorized.');
+    // The sandbox checks the honor period before the authorization state (SPIKE S2.3).
     const age = this.now() - auth.createdAt;
     if (age < HONOR_PERIOD_DAYS * DAY_MS) throw unprocessable('REAUTHORIZATION_TOO_SOON', 'A reauthorization cannot be made within the honor period.');
+    if (auth.status !== 'CREATED') throw unprocessable('REAUTHORIZATION_NOT_SUPPORTED', 'Only a fully uncaptured authorization can be reauthorized.');
     const requested = body.amount === undefined ? { minor: auth.authorizedMinor, currency: auth.currency } : amountOf(body.amount, auth.currency);
     if (!requested || requested.minor > Math.floor(auth.authorizedMinor * 1.15)) throw unprocessable('MAX_AUTHORIZATION_AMOUNT_EXCEEDED', 'Reauthorization amount exceeds allowable limit.');
     const created = this.now();
@@ -520,6 +537,8 @@ export class MockPayPal {
   private verifyWebhook(body: Record<string, unknown>, rawBody: string): StoredResponse {
     const fields = ['transmission_id', 'transmission_time', 'transmission_sig', 'webhook_id'] as const;
     for (const field of fields) if (typeof body[field] !== 'string') throw badRequest('MISSING_REQUIRED_PARAMETER', `${field} is required`);
+    // SPIKE S6.2 (first run): PayPal validates webhook_id against ^[a-zA-Z0-9]+$.
+    if (!/^[a-zA-Z0-9]+$/.test(String(body.webhook_id))) throw badRequest('INVALID_PARAMETER_SYNTAX', 'webhook_id must match ^[a-zA-Z0-9]+$');
     // PayPal checks the event exactly as it was sent; so does the fake.
     const eventText = extractRawEvent(rawBody) ?? JSON.stringify(body.webhook_event);
     const expected = this.webhookSig(String(body.transmission_id), String(body.transmission_time), String(body.webhook_id), eventText);

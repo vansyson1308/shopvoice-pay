@@ -2,31 +2,52 @@
 
 Each entry gives the decision, the reasoning, and what would change it. Dates are Vietnam time.
 
-## D1. Settlement model: platform procurement wallet, with direct payee as a promotion (2026-10-04, provisional)
+## D1. Settlement model: platform procurement wallet + Payouts (2026-10-04, **confirmed by the sandbox spike**)
 
-**Decision.** Auto-pay orders are vaulted `AUTHORIZE` orders whose payee is the ShopVoice platform sandbox account (the "procurement wallet"). On delivery we capture what arrived, void the rest, and settle the supplier with a Payouts item for the captured amount, net of any refunds, in a settlement run. Settlement is configurable as `platform_payout` or `direct_payee`. With `direct_payee`, the order names the supplier in `purchase_units[].payee` and the Payouts step is skipped.
+**Decision.** Every supplier order, auto-pay or step-up, is an `AUTHORIZE` order whose payee is the ShopVoice platform sandbox account (the "procurement wallet").
+- Auto-pay orders use the owner's vaulted PayPal account, with no buyer interaction.
+- Step-up orders use the same vault once the owner approves in ShopVoice. If no vault exists yet, the owner approves in PayPal (the `payer-action` link or a QR code).
+- On delivery we capture what arrived and void the rest.
+- The supplier is paid with a Payouts item for the captured amount, net of refunds, in a settlement run.
 
-**Why.** The owner should approve once ("Connect PayPal") and then let routine orders pay without a checkout, so vaulting is required. PayPal documents only one way to charge a vaulted token to a *different* merchant: the Platforms (multiparty) flow, with `usage_type: PLATFORM`, a partner BN code, `PayPal-Auth-Assertion` and supplier consent through partner onboarding. A self-serve sandbox app cannot complete that flow, so we expect `PAYEE_NOT_CONSENTED` or `PERMISSION_DENIED` (SPIKE §4.3). The wallet model is the documented fallback and keeps one consistent flow for both the hero story and the tests.
+**Evidence (SPIKE.md, real sandbox runs, 2026-10-04):**
+- A vaulted order naming the supplier as payee is rejected with 422 `BILLING_AGREEMENT_NOT_FOUND`, for both CAPTURE and AUTHORIZE. A `MERCHANT` vault token is an agreement with the API caller only.
+- When the supplier is the payee (buyer-approved), the platform **cannot void** the authorization: 403 `PERMISSION_DENIED`, even before any capture. It can only release the remainder by capturing with `final_capture:true`. "Cancel the hold because nothing arrived" would therefore be impossible.
+- With the platform as payee, everything the product needs works:
+  - vaulted AUTHORIZE with no buyer;
+  - partial capture then void (`VOIDED`);
+  - full capture and refunds;
+  - Payouts to the supplier reaching `SUCCESS` in about 31 s.
 
 **Consequences.**
-- A refund after the supplier was paid out is netted against that supplier's next settlement. The ledger shows it as "supplier credit". In the demo, the settlement run waits until the delivery has been checked, so refunds for spoiled goods usually reduce the payout instead of needing a clawback.
-- In production this is a regulated money flow. The honest production path is PayPal Multiparty with onboarded suppliers. README and DEVPOST say so.
+- A refund after the supplier was paid out is netted against that supplier's next settlement and shown as "supplier credit". By default the settlement run waits until the delivery check passes, so refunds for spoiled goods usually reduce the payout instead.
+- In production this is a regulated flow (a platform holding funds for sellers). The production path is PayPal Multiparty with onboarded suppliers (`usage_type: PLATFORM`, partner attribution, seller consent). README and DEVPOST say so plainly.
+- The `direct_payee` setting is removed from the plan; there is one settlement code path.
 
-**Revisit when.** If spike row S3.vault-authorize-payee is accepted in the sandbox, set the default to `direct_payee`.
+## D2. Hold first, capture on delivery (2026-10-04, **confirmed**)
 
-## D2. Hold first, capture on delivery (2026-10-04)
+**Decision.**
+- Every supplier order uses `intent: AUTHORIZE`.
+- Full delivery: `capture(final_capture: true)`.
+- Short delivery: `capture(delivered value, final_capture: false)` then `void` of the remainder. Two ledger events, so the "released" amount is visible.
+- Nothing delivered: `void`.
+- Variance above tolerance: hold and step up.
+- Honor period: from day 3 the UI warns; from day 4 the server reauthorizes (new authorization id, same 29-day end) before capturing.
 
-**Decision.** Every supplier order uses `intent: AUTHORIZE`. Delivery triggers a full capture, or a partial capture with `final_capture: false` followed by an explicit void of the remainder. A variance above tolerance places a hold (step-up). Authorizations older than the 3-day honor period are reauthorized before capture, and the UI warns from day 2.
-
-**Why.** "Pays only for what arrived" is the product. An explicit void, rather than relying on `final_capture: true` to release the rest, gives a ledger event we can show and test either way. The docs are silent on what `final_capture: true` does to the remainder (SPIKE S2.5).
-
-**Fallback.** If partial capture turns out not to be enabled for wallet authorizations in the sandbox (S2.2), void the whole authorization and place a new vaulted `CAPTURE` order for the delivered amount, recorded as a re-charge.
+**Evidence.**
+- Partial capture is enabled for wallet authorizations on this sandbox account: S2.2, S2.5, S2.10.
+- Partial capture then void ends `VOIDED` (S2.10).
+- `final_capture:true` releases the remainder (`CAPTURED`, S2.5/S2.8) and is the fallback if a void ever fails.
+- Reauthorizing early returns `REAUTHORIZATION_TOO_SOON` (S2.3).
+- Authorizations expire 29 days after creation (S2.1).
 
 ## D3. Our own thin REST client for money movement; Agent Toolkit for everything else (2026-10-04)
 
 **Decision.** Orders, authorize/capture/void/reauthorize, Vault, Payouts, refunds and webhook verification go through `apps/mcp-server/src/payments` (our client). `@paypal/agent-toolkit` provides invoicing (the store's catering sales), shipment tracking, the transaction list and order lookup. Toolkit tools are wrapped behind our policy layer and never exposed raw to the LLM.
 
-**Why.** Toolkit 1.11.0 has no authorize, void, vault, payout or cart tools. Its `create_order` is CAPTURE-only with no payee. Its `context.request_id` pins one idempotency key per toolkit instance. Money movement needs a fresh key per operation, replayed exactly on retry, plus ledger and audit writes in the same code path.
+Spike T1–T8 confirmed `create_invoice`, `send_invoice`, `get_order`, `create_shipment_tracking`, `get_shipment_tracking`, `create_refund` and `list_transactions` in sandbox. `get_merchant_insights` is not supported in sandbox. `list_transactions` lags behind real time in sandbox (1 result after dozens of transactions), so spend summaries come from our ledger and the toolkit is a cross-check.
+
+**Why.** Toolkit 1.11.0 has no authorize, void, vault, payout or cart tools (spike T0). Its `create_order` is CAPTURE-only with no payee. Its `context.request_id` pins one idempotency key per toolkit instance. Money movement needs a fresh key per operation, replayed exactly on retry, plus ledger and audit writes in the same code path.
 
 ## D4. Mock PayPal is a fetch implementation, not a separate code path (2026-10-04)
 
@@ -52,8 +73,14 @@ Database role names inside migrations 001–018 (`groceryclaw_app_runtime`, …)
 
 **Decision.** We do not call `mcp.sandbox.paypal.com` from the server.
 
-**Why.** Probing on 2026-10-04 showed that it only supports OAuth `authorization_code` + PKCE (a browser login), so an unattended agent cannot use it with client credentials. Spike T9 checks whether a REST bearer token is accepted. If it is, we may expose it as an optional read-only channel.
+**Why.** The server only supports OAuth `authorization_code` + PKCE (a browser login). Spike T9: with no token, `/mcp` returns 401; with a REST client-credentials bearer it returns 404; the documented `/http` path returns 404. An unattended agent therefore cannot use it. The Agent Toolkit gives the same tools in-process.
 
-## D8. Work staging until the new repository exists (2026-10-04)
+## D8. Work staging until the new repository existed (2026-10-04, resolved)
 
-**Decision.** `vansyson1308/shopvoice-pay` did not exist at the start of M0, and creating it is the owner's step (§11). The repository was therefore built as its own git history. Its commits will be pushed unchanged once the repository exists, so commit dates stay as built. Nothing was pushed to groceryclaw `main`.
+`vansyson1308/shopvoice-pay` did not exist at the start of M0. The GitHub connector cannot create repositories (403), so the owner created it. The history was built locally and pushed with `main` = the import commit; everything after it went through PRs. Nothing was pushed to groceryclaw on any branch.
+
+## D9. Sandbox buyer approval is automated with Playwright, for tests only (2026-10-04)
+
+**Decision.** `scripts/paypal/sandbox-approver.mjs` logs in as the sandbox personal account in headless Chromium and approves orders and vault setup tokens, so the spike and the sandbox tests can run unattended. It refuses non-sandbox URLs. Behind a TLS-intercepting proxy it pins the proxy CA's key instead of disabling certificate checks.
+
+**Why.** Four buyer approvals per spike run, and later the hosted e2e, would otherwise need a person at a keyboard. The product itself never automates the owner's approval. Playwright is also the planned e2e runner (§7.B), so this adds no new framework.

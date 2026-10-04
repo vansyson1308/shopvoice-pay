@@ -12,6 +12,7 @@
 // against the in-process fake, approving automatically: a self-test of this
 // script, not evidence about PayPal.
 import { writeFileSync, mkdirSync } from 'node:fs';
+import { approveInSandbox } from './sandbox-approver.mjs';
 import { setTimeout as sleep } from 'node:timers/promises';
 import {
   createPayPalRuntime, newRequestId, PayPalApiError, findLink,
@@ -29,6 +30,13 @@ const returnUrl = env.SPIKE_RETURN_URL || 'https://example.com/shopvoice/return'
 const cancelUrl = env.SPIKE_CANCEL_URL || 'https://example.com/shopvoice/cancel';
 const approvalTimeoutMs = Number(env.SPIKE_APPROVAL_TIMEOUT_MS || 10 * 60_000);
 const only = new Set((env.SPIKE_ONLY || '').split(',').filter(Boolean));
+/** Optional scratch file (never committed) where the spike leaves ids for follow-up runs. */
+const stateFile = env.SPIKE_STATE_FILE || '';
+const state = {};
+function remember(key, value) {
+  state[key] = value;
+  if (stateFile) writeFileSync(stateFile, `${JSON.stringify(state, null, 2)}\n`, { mode: 0o600 });
+}
 
 const USD = (amountMinor) => ({ amountMinor, currency: 'USD' });
 const results = [];
@@ -40,7 +48,7 @@ function tag(value) {
 
 function errorEvidence(error) {
   if (error instanceof PayPalApiError) {
-    return { http_status: error.status, name: error.name, issue: error.code, debug_id: error.debugId, issues: error.issues.map((i) => i.issue) };
+    return { http_status: error.status, name: error.name, issue: error.code, description: error.issues[0]?.description?.slice(0, 200) ?? error.message.slice(0, 200), debug_id: error.debugId };
   }
   return { error: error instanceof Error ? error.message : String(error) };
 }
@@ -79,12 +87,30 @@ async function waitForBuyer(kind, id, url, isApproved) {
     else mock.approveSetupToken(id);
     return;
   }
-  console.log(`  Buyer approval needed (${kind}). Open this URL, log in as the sandbox PERSONAL account and approve:\n    ${url}`);
+  // Either the headless approver (SPIKE_BUYER_PASSWORD set) or a person clicks the link;
+  // both are confirmed the same way, by asking PayPal for the resource status.
+  let approver = null;
+  if (env.SPIKE_BUYER_PASSWORD) {
+    console.log(`  Approving ${kind} as the sandbox buyer in headless Chromium...`);
+    approver = approveInSandbox(url, {
+      email: env.SPIKE_BUYER_EMAIL,
+      password: env.SPIKE_BUYER_PASSWORD,
+      returnHost: new URL(returnUrl).hostname,
+      screenshotDir: env.SPIKE_SCREENSHOT_DIR || null,
+      log: (m) => console.log(`    approver: ${m}`)
+    }).then((r) => { console.log(`    approver finished: ${JSON.stringify(r)}`); }, (e) => { console.log(`    approver error: ${e.message}`); });
+  } else {
+    console.log(`  Buyer approval needed (${kind}). Open this URL, log in as the sandbox PERSONAL account and approve:\n    ${url}`);
+  }
   const deadline = Date.now() + approvalTimeoutMs;
   while (Date.now() < deadline) {
-    if (await isApproved()) return;
+    if (await isApproved()) {
+      await approver;
+      return;
+    }
     await sleep(3000);
   }
+  await approver;
   throw new Error(`buyer_approval_timeout:${kind}`);
 }
 
@@ -149,7 +175,7 @@ if (directAuth) {
     const afterCapture = await getAuthorization(client, directAuth.id);
     const voided = await probe(() => voidAuthorization(client, directAuth.id, newRequestId('spike-void')));
     const afterVoid = await getAuthorization(client, directAuth.id);
-    return { evidence: { capture: tag(capture.id), capture_status: capture.status, captured: capture.amount, auth_after_capture: afterCapture.status, void: voided.outcome, void_error: voided.issue, auth_after_void: afterVoid.status } , value: capture };
+    return { status: voided.outcome === 'accepted' ? 'pass' : 'info', evidence: { capture: tag(capture.id), capture_status: capture.status, captured: capture.amount, auth_after_capture: afterCapture.status, void: voided.outcome, void_error: voided.issue ?? null, description: voided.description ?? null, auth_after_void: afterVoid.status }, value: capture };
   });
   await check('S2.3', 'Reauthorize inside the 3-day honor period (expected rejection)', async () => {
     const result = await probe(() => reauthorize(client, directAuth.id, null, newRequestId('spike-reauth')));
@@ -157,12 +183,27 @@ if (directAuth) {
   });
 }
 
+await check('S2.8', 'Supplier-payee authorization: partial capture with final_capture:true releases the rest?', async () => {
+  const { authorization } = await buyerApprovedAuthorization(12_600, supplierEmail, 'direct-final-partial');
+  const capture = await captureAuthorization(client, authorization.id, { amount: USD(8_400), finalCapture: true, requestId: newRequestId('spike-capture') });
+  const after = await getAuthorization(client, authorization.id);
+  return { evidence: { capture_status: capture.status, captured: capture.amount, auth_after: after.status } };
+});
+
+await check('S2.9', 'Supplier-payee authorization: void untouched (API caller is not the payee)', async () => {
+  const { authorization } = await buyerApprovedAuthorization(4_200, supplierEmail, 'direct-void');
+  const voided = await probe(() => voidAuthorization(client, authorization.id, newRequestId('spike-void')));
+  const after = await getAuthorization(client, authorization.id);
+  return { status: 'info', evidence: { void: voided.outcome, void_error: voided.issue ?? null, description: voided.description ?? null, auth_after: after.status } };
+});
+
 // §4.3 Vault v3 save-without-purchase
 const vaultId = await check('S3.1', 'Vault setup token -> buyer approval -> payment token (vault id)', async () => {
   const setup = await createSetupToken(client, { returnUrl, cancelUrl, brandName: 'ShopVoice Pay (sandbox)', description: 'ShopVoice Pay supplier payments', requestId: newRequestId('spike-setup') });
   const url = findLink(setup.links, 'approve');
   await waitForBuyer('setup_token', setup.id, url, async () => ['APPROVED', 'VAULTED'].includes((await getSetupToken(client, setup.id)).status));
   const token = await createPaymentToken(client, setup.id, newRequestId('spike-ptoken'));
+  remember('vault_id', token.id);
   return { evidence: { setup_status: setup.status, approve_link: url ? new URL(url).pathname : null, vault_id: tag(token.id), customer: tag(token.customer?.id), payer_email_present: !!token.payment_source?.paypal?.email_address }, value: token.id };
 });
 
@@ -203,6 +244,14 @@ if (vaultId) {
     const voided = await probe(() => voidAuthorization(client, auth.id, newRequestId('spike-void')));
     return { evidence: { capture_status: capture.status, captured: capture.amount, auth_after_capture: afterCapture.status, void: voided.outcome, void_error: voided.issue ?? null, auth_after_void: (await getAuthorization(client, auth.id)).status } };
   });
+  await check('S2.10', 'Platform authorization: partial capture (final_capture:false), then void the remainder', async () => {
+    const auth = await platformAuthorization('platform-partial-void');
+    const capture = await captureAuthorization(client, auth.id, { amount: USD(7_000), finalCapture: false, requestId: newRequestId('spike-capture') });
+    const afterCapture = await getAuthorization(client, auth.id);
+    const voided = await probe(() => voidAuthorization(client, auth.id, newRequestId('spike-void')));
+    const afterVoid = await getAuthorization(client, auth.id);
+    return { status: voided.outcome === 'accepted' ? 'pass' : 'fail', evidence: { captured: capture.amount, auth_after_capture: afterCapture.status, void: voided.outcome, void_error: voided.issue ?? null, auth_after_void: afterVoid.status } };
+  });
   await check('S2.6', 'Void an untouched authorization', async () => {
     const auth = await platformAuthorization('void');
     await voidAuthorization(client, auth.id, newRequestId('spike-void'));
@@ -239,31 +288,44 @@ await check('S5', 'Payouts: platform account -> supplier sandbox business accoun
     items: [{ receiverEmail: supplierEmail, amount: USD(8_400), note: 'Spike settlement for PO-SPIKE', senderItemId: 'spike-item-1' }],
     requestId: newRequestId('spike-payout')
   });
-  await sleep(mock ? 0 : 5000);
-  const status = await getPayoutBatch(client, batch.batch_header.payout_batch_id);
-  return { evidence: { created: batch.batch_header.batch_status, after_5s: status.batch_header.batch_status, item_status: status.items?.[0]?.transaction_status ?? null } };
+  remember('payout_batch_id', batch.batch_header.payout_batch_id);
+  let status = await getPayoutBatch(client, batch.batch_header.payout_batch_id);
+  const started = Date.now();
+  while (!mock && ['PENDING', 'PROCESSING'].includes(status.batch_header.batch_status) && Date.now() - started < 90_000) {
+    await sleep(10_000);
+    status = await getPayoutBatch(client, batch.batch_header.payout_batch_id);
+  }
+  return { evidence: { created: batch.batch_header.batch_status, final_batch_status: status.batch_header.batch_status, waited_s: Math.round((Date.now() - started) / 1000), item_status: status.items?.[0]?.transaction_status ?? null } };
 });
 
 // §4.6 Webhooks
-await check('S6.1', 'Webhook registration for the six event types', async () => {
+const webhookId = await check('S6.1', 'Webhook registration for the six event types', async () => {
   if (!env.SPIKE_WEBHOOK_URL) {
     const hooks = mock ? [] : await listWebhooks(client);
     return { status: 'skipped', evidence: { reason: 'SPIKE_WEBHOOK_URL not set (needs a public https URL)', existing_webhooks: hooks.length } };
   }
   const hook = await registerWebhook(client, env.SPIKE_WEBHOOK_URL, newRequestId('spike-webhook'));
-  return { evidence: { webhook_id: tag(hook.id), events: hook.event_types.map((e) => e.name) } };
+  return { evidence: { webhook_id: tag(hook.id), events: hook.event_types.map((e) => e.name) }, value: hook.id };
 });
 
 await check('S6.2', 'verify-webhook-signature rejects a forged delivery', async () => {
   const rawEvent = JSON.stringify({ id: 'WH-FORGED', event_type: 'PAYMENT.CAPTURE.COMPLETED', resource: { id: 'X', amount: { currency_code: 'USD', value: '5000.00' } } });
   const ok = await verifyWebhookSignature(client, {
-    webhookId: env.PAYPAL_WEBHOOK_ID || 'WH-SPIKE-FORGED',
+    // PayPal validates webhook_id as ^[a-zA-Z0-9]+$ (learned in the first sandbox run).
+    webhookId: webhookId || env.PAYPAL_WEBHOOK_ID || '0SPIKEFORGED00000',
     headers: { authAlgo: 'SHA256withRSA', certUrl: 'https://api.sandbox.paypal.com/v1/notifications/certs/CERT-360caa42-fca2a594-a5cafa77', transmissionId: '00000000-0000-0000-0000-000000000000', transmissionSig: 'Zm9yZ2Vk', transmissionTime: new Date().toISOString() },
     rawEvent,
     requestId: newRequestId('spike-whverify')
   });
-  return { status: ok ? 'fail' : 'pass', evidence: { verification_status: ok ? 'SUCCESS' : 'FAILURE' } };
+  return { status: ok ? 'fail' : 'pass', evidence: { verification_status: ok ? 'SUCCESS' : 'FAILURE', webhook_id_kind: webhookId ? 'registered' : 'placeholder' } };
 });
+
+if (webhookId && env.SPIKE_WEBHOOK_KEEP !== 'true') {
+  await check('S6.3', 'Delete the spike webhook (the URL is a placeholder)', async () => {
+    await client.request({ method: 'DELETE', path: `/v1/notifications/webhooks/${encodeURIComponent(webhookId)}` });
+    return { evidence: { deleted: true } };
+  });
+}
 
 const summary = results.reduce((acc, r) => ({ ...acc, [r.status]: (acc[r.status] ?? 0) + 1 }), {});
 const report = { mode, base_url: client.baseUrl, ran_at: new Date().toISOString(), supplier_email_domain: supplierEmail.split('@')[1], summary, results };

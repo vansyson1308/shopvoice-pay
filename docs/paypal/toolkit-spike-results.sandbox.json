@@ -1,0 +1,165 @@
+{
+  "mode": "sandbox",
+  "ran_at": "2026-10-04T17:48:04.781Z",
+  "summary": {
+    "pass": 10,
+    "info": 2
+  },
+  "results": [
+    {
+      "id": "T0",
+      "title": "Toolkit tools available for ShopVoice Pay",
+      "status": "pass",
+      "ms": 0,
+      "evidence": {
+        "version": "1.11.0",
+        "tools": [
+          "create_invoice",
+          "list_invoices",
+          "get_invoice",
+          "send_invoice",
+          "create_shipment_tracking",
+          "get_shipment_tracking",
+          "get_order",
+          "list_transactions",
+          "create_refund",
+          "get_refund",
+          "get_merchant_insights"
+        ]
+      }
+    },
+    {
+      "id": "T1",
+      "title": "create_invoice (store sells a catering tray)",
+      "status": "pass",
+      "ms": 884,
+      "evidence": {
+        "keys": [
+          "rel",
+          "href",
+          "method"
+        ],
+        "href_present": true
+      }
+    },
+    {
+      "id": "T2",
+      "title": "send_invoice",
+      "status": "pass",
+      "ms": 849,
+      "evidence": {
+        "result": [
+          "href",
+          "rel",
+          "method"
+        ]
+      }
+    },
+    {
+      "id": "T3.0",
+      "title": "create an order with our own client for get_order",
+      "status": "pass",
+      "ms": 568,
+      "evidence": {
+        "status": "PAYER_ACTION_REQUIRED"
+      }
+    },
+    {
+      "id": "T3",
+      "title": "get_order",
+      "status": "pass",
+      "ms": 552,
+      "evidence": {
+        "status": "PAYER_ACTION_REQUIRED",
+        "intent": "AUTHORIZE"
+      }
+    },
+    {
+      "id": "T4.0",
+      "title": "vaulted CAPTURE order to get a capture id",
+      "status": "pass",
+      "ms": 1890,
+      "evidence": {
+        "status": "COMPLETED"
+      }
+    },
+    {
+      "id": "T4",
+      "title": "create_shipment_tracking on a captured transaction",
+      "status": "pass",
+      "ms": 605,
+      "evidence": {
+        "trackers": 1,
+        "errors": []
+      }
+    },
+    {
+      "id": "T5",
+      "title": "get_shipment_tracking",
+      "status": "pass",
+      "ms": 500,
+      "evidence": {
+        "keys": [
+          "trackers",
+          "links"
+        ]
+      }
+    },
+    {
+      "id": "T6",
+      "title": "create_refund (partial)",
+      "status": "pass",
+      "ms": 1751,
+      "evidence": {
+        "status": "COMPLETED",
+        "keys": [
+          "id",
+          "status",
+          "links"
+        ]
+      }
+    },
+    {
+      "id": "T7",
+      "title": "list_transactions (last 30 days)",
+      "status": "pass",
+      "ms": 502,
+      "evidence": {
+        "keys": [
+          "transaction_details",
+          "account_number",
+          "start_date",
+          "end_date",
+          "last_refreshed_datetime",
+          "page",
+          "total_items",
+          "total_pages"
+        ],
+        "count": 1
+      }
+    },
+    {
+      "id": "T8",
+      "title": "get_merchant_insights (docs say sandbox throws)",
+      "status": "info",
+      "ms": 0,
+      "evidence": {
+        "keys": [
+          "error"
+        ],
+        "error": "{\"message\":\"get_merchant_insights is not supported in sandbox mode\",\"type\":\"paypal_error\"}"
+      }
+    },
+    {
+      "id": "T9",
+      "title": "Remote PayPal MCP server (mcp.sandbox.paypal.com/mcp): no token vs REST bearer token",
+      "status": "info",
+      "ms": 306,
+      "evidence": {
+        "no_token": 401,
+        "rest_bearer": 404,
+        "tools": null
+      }
+    }
+  ]
+}

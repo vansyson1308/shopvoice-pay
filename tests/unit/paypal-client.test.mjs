@@ -218,7 +218,7 @@ test('authorization outcomes: full capture, partial + void, void', async () => {
 
   const finalPartial = await approvedAuthorization(ctx, 12000);
   await captureAuthorization(ctx.client, finalPartial.id, { amount: USD(10000), finalCapture: true, requestId: newRequestId('cap') });
-  await assert.rejects(voidAuthorization(ctx.client, finalPartial.id, newRequestId('void')), (e) => e.code === 'AUTHORIZATION_ALREADY_CAPTURED');
+  await assert.rejects(voidAuthorization(ctx.client, finalPartial.id, newRequestId('void')), (e) => e.code === 'PREVIOUSLY_CAPTURED');
 
   const voided = await approvedAuthorization(ctx, 5000);
   await voidAuthorization(ctx.client, voided.id, newRequestId('void'));
@@ -226,6 +226,17 @@ test('authorization outcomes: full capture, partial + void, void', async () => {
 
   const over = await approvedAuthorization(ctx, 5000);
   await assert.rejects(captureAuthorization(ctx.client, over.id, { amount: USD(5001), finalCapture: true, requestId: newRequestId('cap') }), (e) => e.code === 'MAX_CAPTURE_AMOUNT_EXCEEDED');
+});
+
+test('supplier-payee authorization (buyer-approved): no void (403), final_capture releases the rest', async () => {
+  const ctx = setup();
+  const order = await createOrder(ctx.client, { intent: 'AUTHORIZE', purchaseUnit: unit(12600, { payee: { emailAddress: 'dairy@business.example.com' } }), paymentSource: { kind: 'paypal_approval', returnUrl: 'https://a.example/r', cancelUrl: 'https://a.example/c', brandName: 'x' }, requestId: newRequestId('order') });
+  ctx.mock.approveOrder(order.id);
+  const auth = firstAuthorization(await authorizeOrder(ctx.client, order.id, newRequestId('auth')));
+  await assert.rejects(voidAuthorization(ctx.client, auth.id, newRequestId('void')), (e) => e.status === 403 && e.code === 'PERMISSION_DENIED');
+  await captureAuthorization(ctx.client, auth.id, { amount: USD(8400), finalCapture: true, requestId: newRequestId('cap') });
+  assert.equal((await getAuthorization(ctx.client, auth.id)).status, 'CAPTURED');
+  await assert.rejects(captureAuthorization(ctx.client, auth.id, { finalCapture: true, requestId: newRequestId('cap') }), (e) => e.code === 'AUTHORIZATION_ALREADY_CAPTURED');
 });
 
 test('honor period and expiry: reauthorize only after day 3, capture fails after day 29', async () => {
@@ -254,7 +265,7 @@ test('refunds: partial, then the rest, then nothing left', async () => {
 });
 
 test('vault: save without purchase, then a merchant-initiated AUTHORIZE needs no buyer', async () => {
-  const ctx = setup();
+  const ctx = setup({ vaultThirdPartyPayee: 'allowed' });
   const setupToken = await createSetupToken(ctx.client, { returnUrl: 'https://a.example/r', cancelUrl: 'https://a.example/c', brandName: 'ShopVoice Pay', description: 'Supplier payments for Corner Store', requestId: newRequestId('setup') });
   assert.equal(setupToken.status, 'PAYER_ACTION_REQUIRED');
   assert.ok(findLink(setupToken.links, 'approve'));
@@ -270,14 +281,14 @@ test('vault: save without purchase, then a merchant-initiated AUTHORIZE needs no
   assert.equal(firstAuthorization(order).status, 'CREATED');
 });
 
-test('vault + third-party payee rejection is reported with PayPal issue code (fallback trigger)', async () => {
-  const ctx = setup({ vaultThirdPartyPayee: 'rejected' });
+test('vault + third-party payee is rejected like the sandbox (BILLING_AGREEMENT_NOT_FOUND); platform payee works', async () => {
+  const ctx = setup();
   const st = await createSetupToken(ctx.client, { returnUrl: 'https://a.example/r', cancelUrl: 'https://a.example/c', brandName: 'x', description: 'x', requestId: newRequestId('setup') });
   ctx.mock.approveSetupToken(st.id);
   const pt = await createPaymentToken(ctx.client, st.id, newRequestId('ptok'));
   await assert.rejects(
     createOrder(ctx.client, { intent: 'AUTHORIZE', purchaseUnit: unit(8400, { payee: { emailAddress: 'dairy@business.example.com' } }), paymentSource: { kind: 'vault', vaultId: pt.id }, requestId: newRequestId('order') }),
-    (e) => e.code === 'PAYEE_NOT_CONSENTED'
+    (e) => e.code === 'BILLING_AGREEMENT_NOT_FOUND' && e.status === 422
   );
   const platform = await createOrder(ctx.client, { intent: 'AUTHORIZE', purchaseUnit: unit(8400), paymentSource: { kind: 'vault', vaultId: pt.id }, requestId: newRequestId('order') });
   assert.equal(platform.status, 'COMPLETED');
@@ -296,13 +307,14 @@ test('webhook verification: genuine event passes, tampered event and missing hea
   const ctx = setup();
   // Deliberately odd spacing: verification must use the bytes as received, not a re-serialisation.
   const rawEvent = '{"id":"WH-EVT-1", "event_type":"PAYMENT.CAPTURE.COMPLETED","resource":{"id":"CAP1","amount":{"currency_code":"USD","value":"84.00"}}}';
-  const headers = readWebhookHeaders(ctx.mock.signWebhook(rawEvent, 'WH-123'));
+  const headers = readWebhookHeaders(ctx.mock.signWebhook(rawEvent, 'WH123'));
   assert.ok(headers);
-  assert.equal(await verifyWebhookSignature(ctx.client, { webhookId: 'WH-123', headers, rawEvent, requestId: newRequestId('whv') }), true);
+  assert.equal(await verifyWebhookSignature(ctx.client, { webhookId: 'WH123', headers, rawEvent, requestId: newRequestId('whv') }), true);
   const tampered = rawEvent.replace('84.00', '8400.00');
-  assert.equal(await verifyWebhookSignature(ctx.client, { webhookId: 'WH-123', headers, rawEvent: tampered, requestId: newRequestId('whv') }), false);
-  assert.equal(await verifyWebhookSignature(ctx.client, { webhookId: 'WH-OTHER', headers, rawEvent, requestId: newRequestId('whv') }), false);
-  await assert.rejects(verifyWebhookSignature(ctx.client, { webhookId: 'WH-123', headers, rawEvent: 'not json', requestId: newRequestId('whv') }));
+  assert.equal(await verifyWebhookSignature(ctx.client, { webhookId: 'WH123', headers, rawEvent: tampered, requestId: newRequestId('whv') }), false);
+  assert.equal(await verifyWebhookSignature(ctx.client, { webhookId: 'WHOTHER', headers, rawEvent, requestId: newRequestId('whv') }), false);
+  await assert.rejects(verifyWebhookSignature(ctx.client, { webhookId: 'WH123', headers, rawEvent: 'not json', requestId: newRequestId('whv') }));
+  await assert.rejects(verifyWebhookSignature(ctx.client, { webhookId: 'WH-123', headers, rawEvent, requestId: newRequestId('whv') }), (e) => e.status === 400);
   assert.equal(readWebhookHeaders({ 'paypal-transmission-id': 'x' }), null);
   const hook = await registerWebhook(ctx.client, 'https://shop.example/paypal/webhook', newRequestId('wh'));
   assert.equal(hook.event_types.length, 6);
