@@ -34,6 +34,7 @@
   },
   "devDependencies": {
     "fast-glob": "^3.3.2",
+    "playwright": "^1.56.1",
     "typescript": "^5.9.3"
   },
   "dependencies": {

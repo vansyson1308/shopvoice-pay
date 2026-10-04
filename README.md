@@ -30,7 +30,7 @@ npm test            # build + unit tests, with PayPal mocked
 npm run demo:e2e    # voice flow against the in-memory demo store
 ```
 
-`PAYPAL_MODE=mock` (the default) runs an in-process fake of the PayPal endpoints we use, so nothing leaves your machine. To run against the real PayPal sandbox, copy `.env.example` to `.env`, set `PAYPAL_MODE=sandbox` with sandbox REST app credentials, and run `npm run spike`.
+`PAYPAL_MODE=mock` (the default) runs an in-process fake of the PayPal endpoints we use, so nothing leaves your machine. Its behaviour was calibrated against the real sandbox ([SPIKE.md](docs/paypal/SPIKE.md)). To run against the real PayPal sandbox, copy `.env.example` to `.env`, set `PAYPAL_MODE=sandbox` with sandbox REST app credentials, and run `npm run spike` and `npm run test:sandbox`.
 
 ## Architecture
 
@@ -61,7 +61,7 @@ Details: [docs/paypal/ARCHITECTURE.md](docs/paypal/ARCHITECTURE.md). Day-1 sandb
 | Payments v2 | `POST /v2/payments/authorizations/{id}/capture`, `…/void`, `…/reauthorize`, `GET …` | pay on delivery: full or partial capture, release the remainder, extend past the 3-day honor period |
 | Payments v2 | `POST /v2/payments/captures/{id}/refund`, `GET /v2/payments/refunds/{id}` | refunds for spoiled or short goods |
 | Vault v3 | `POST /v3/vault/setup-tokens`, `POST /v3/vault/payment-tokens`, `GET`/`DELETE …/{id}` | "Connect PayPal" once, then merchant-initiated payments with no checkout |
-| Payouts v1 | `POST /v1/payments/payouts`, `GET …/{batch_id}` | supplier settlement in the platform-wallet model (see DECISIONS.md) |
+| Payouts v1 | `POST /v1/payments/payouts`, `GET …/{batch_id}` | supplier settlement: orders are paid to the ShopVoice platform account, and suppliers are paid out for what was captured (DECISIONS.md D1, confirmed in sandbox) |
 | Webhooks v1 | `POST /v1/notifications/webhooks`, `POST /v1/notifications/verify-webhook-signature` | ledger sync; polling fallback for local runs |
 | Agent Toolkit | `@paypal/agent-toolkit` 1.11.0: `create_invoice`, `send_invoice`, `create_shipment_tracking`, `get_shipment_tracking`, `list_transactions`, `get_order`, `create_refund` | planned: invoices for the store's catering orders, shipment tracking, and the transaction list for spend summaries, wrapped behind the policy layer |
 | Agentic Commerce Cart API v1 | merchant side: `POST /merchant-cart`, `PUT /merchant-cart/{id}`, `POST /merchant-cart/{id}/checkout` | planned: a **simulated** supplier agent that ShopVoice negotiates with |

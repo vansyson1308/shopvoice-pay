@@ -1,6 +1,6 @@
 # Architecture
 
-Status: **M0 draft.** The payments client exists and is tested. Policy, ledger, delivery matching, the LLM brain and the console redesign are planned for M1 and M2, and are described here as the target design.
+Status: **M1 draft.** The payment architecture is confirmed by the sandbox spike (SPIKE.md). The payments client exists and is tested. Policy, ledger, delivery matching, the LLM brain and the console redesign are planned for M1 and M2, and are described here as the target design.
 
 ## Components
 
@@ -76,9 +76,9 @@ The policy returns `step_up` with reasons (for example "Eggs went up 31% against
 - short delivery within tolerance: `capture(delivered value, final_capture: false)` then `void`
 - variance above tolerance: hold and step-up
 
-### Settlement (D1)
+### Settlement (D1, confirmed by the spike)
 
-Captured amounts, net of refunds, are paid to supplier sandbox accounts with Payouts in a settlement run. With `direct_payee` settlement there is no payout step.
+Orders are authorized to the ShopVoice platform account. Captured amounts, net of refunds, are paid to supplier sandbox accounts with Payouts in a settlement run (about 30 s to `SUCCESS` in sandbox). Direct payee is not used: a vault token cannot pay a third party (`BILLING_AGREEMENT_NOT_FOUND`), and the platform cannot void a hold it is not the payee of (`PERMISSION_DENIED`).
 
 ## Data (migration 019, planned)
 

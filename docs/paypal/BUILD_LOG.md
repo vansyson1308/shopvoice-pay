@@ -2,6 +2,28 @@
 
 Running log for ShopVoice Pay (PayPal AI Hackathon). Newest entry first. Times are Vietnam time (UTC+7).
 
+## 2026-10-05 (Mon, 00:30 VN): Day-1 spike run against the real sandbox; settlement confirmed
+
+**Owner set up:** sandbox app "ShopVoice Pay" (Merchant; the platform account is a US business sandbox account; Vault, Payouts, Invoicing and Transaction search enabled), 1 personal and 4 business US sandbox accounts, env vars, repo Actions secrets, and branch protection on `main`.
+
+**Done**
+- Sandbox buyer approval automated with Playwright (`scripts/paypal/sandbox-approver.mjs`). Inside this environment Chromium trusts the egress proxy CA by its SPKI pin; certificate checks stay on.
+- Main spike: 15 pass / 6 info / 0 fail. Toolkit spike: 10 pass / 2 info. `npm run test:sandbox`: 5/5, including vaulted authorize → partial capture → void → refund with no person involved.
+- **Settlement decision confirmed: platform wallet + Payouts** (DECISIONS.md D1). Findings:
+  - vault + third-party payee → `BILLING_AGREEMENT_NOT_FOUND`;
+  - the platform cannot void a supplier-payee authorization → 403 `PERMISSION_DENIED`;
+  - the platform-payee flow works end to end;
+  - Payouts reach `SUCCESS` in 31 s.
+- Other findings:
+  - authorizations expire after 29 days; reauthorizing early → `REAUTHORIZATION_TOO_SOON`;
+  - void after a final capture → `PREVIOUSLY_CAPTURED`;
+  - `webhook_id` must be alphanumeric;
+  - transaction search lags in sandbox; `get_merchant_insights` is unsupported in sandbox;
+  - the remote PayPal MCP server rejects REST tokens (404) and needs a browser OAuth login.
+- The mock now reproduces each of these and has tests for them (22 client tests).
+
+**Next (M1):** migration 019 + RLS tests, memory/pg ledger + property test, vault onboarding, paying `confirm_reorder`, `record_delivery`, refunds.
+
 ## 2026-10-04 (Sun, late): repo live, CI green, M1 started
 
 **Done**

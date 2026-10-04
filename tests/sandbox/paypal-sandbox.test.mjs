@@ -6,7 +6,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   createPayPalRuntime, newRequestId, findLink, createOrder, firstAuthorization, captureAuthorization,
-  voidAuthorization, getAuthorization, refundCapture, createSetupToken, verifyWebhookSignature, PayPalApiError
+  voidAuthorization, getAuthorization, refundCapture, createSetupToken, verifyWebhookSignature
 } from '../../apps/mcp-server/dist/payments/index.js';
 
 const enabled = !!process.env.PAYPAL_CLIENT_ID && !!process.env.PAYPAL_CLIENT_SECRET;
@@ -39,11 +39,12 @@ test('sandbox: vault setup token needs payer approval', { skip: !enabled }, asyn
 
 test('sandbox: forged webhook delivery fails verification', { skip: !enabled }, async () => {
   const ok = await verifyWebhookSignature(runtime.client, {
-    webhookId: process.env.PAYPAL_WEBHOOK_ID || 'WH-FORGED',
+    webhookId: process.env.PAYPAL_WEBHOOK_ID || '0SANDBOXFORGED0000', // PayPal requires ^[a-zA-Z0-9]+$
     headers: { authAlgo: 'SHA256withRSA', certUrl: 'https://api.sandbox.paypal.com/v1/notifications/certs/CERT-360caa42-fca2a594-a5cafa77', transmissionId: '00000000-0000-0000-0000-000000000000', transmissionSig: 'Zm9yZ2Vk', transmissionTime: new Date().toISOString() },
     rawEvent: JSON.stringify({ id: 'WH-FORGED', event_type: 'PAYMENT.CAPTURE.COMPLETED', resource: {} }),
     requestId: newRequestId('sbx-whv')
-  }).catch((error) => (error instanceof PayPalApiError ? false : Promise.reject(error)));
+  });
+  // A schema error would also be "not verified"; insist on PayPal's real verdict.
   assert.equal(ok, false);
 });
 

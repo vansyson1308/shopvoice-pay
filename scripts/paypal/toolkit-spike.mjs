@@ -114,7 +114,7 @@ if (mode === 'sandbox') {
   if (captureId) {
     await check('T4', 'create_shipment_tracking on a captured transaction', async () => {
       const out = await run('create_shipment_tracking', { transaction_id: captureId, tracking_number: `SV${Date.now()}`, status: 'SHIPPED', carrier: 'OTHER' });
-      return { evidence: { keys: Object.keys(out).slice(0, 8) } };
+      return { status: out.errors?.length ? 'fail' : 'pass', evidence: { trackers: out.tracker_identifiers?.length ?? 0, errors: (out.errors ?? []).map((e) => String(e?.name ?? e?.message ?? e).slice(0, 120)) } };
     });
     await check('T5', 'get_shipment_tracking', async () => ({ evidence: { keys: Object.keys(await run('get_shipment_tracking', { transaction_id: captureId })).slice(0, 8) } }));
     await check('T6', 'create_refund (partial)', async () => {
@@ -133,21 +133,29 @@ if (mode === 'sandbox') {
   });
   await check('T8', 'get_merchant_insights (docs say sandbox throws)', async () => {
     const out = await run('get_merchant_insights', { start_date: '2026-09-01', end_date: '2026-10-01', insight_type: 'ORDERS', time_interval: 'WEEKLY' }).catch((e) => ({ error: String(e?.message ?? e) }));
-    return { status: 'info', evidence: { keys: Object.keys(out).slice(0, 6), error: out.error?.slice?.(0, 200) ?? null } };
+    const error = out.error === undefined ? null : JSON.stringify(out.error).slice(0, 240);
+    return { status: 'info', evidence: { keys: Object.keys(out).slice(0, 6), error } };
   });
 
-  // Probed 2026-10-04: POST /mcp -> 401 (Streamable HTTP), /http -> 404, /sse -> 401 (legacy SSE).
-  // The server advertises OAuth 2.1 authorization_code + PKCE with DCR; this checks whether
-  // a REST client-credentials token is also accepted as the bearer.
-  await check('T9', 'Remote PayPal MCP server (mcp.sandbox.paypal.com/mcp) with a REST bearer token', async () => {
-    const client = new Client({ name: 'shopvoice-pay-spike', version: '0.1.0' });
-    const transport = new StreamableHTTPClientTransport(new URL('https://mcp.sandbox.paypal.com/mcp'), {
-      requestInit: { headers: { authorization: `Bearer ${accessToken}` } }
-    });
-    await client.connect(transport);
-    const tools = await client.listTools();
-    await client.close();
-    return { evidence: { tool_count: tools.tools.length, sample: tools.tools.slice(0, 10).map((t) => t.name) } };
+  // The remote server advertises OAuth 2.1 authorization_code + PKCE (browser login) only.
+  // This records how it treats no token and a REST client-credentials token.
+  await check('T9', 'Remote PayPal MCP server (mcp.sandbox.paypal.com/mcp): no token vs REST bearer token', async () => {
+    const body = JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'shopvoice-pay-spike', version: '0.1.0' } } });
+    const post = async (auth) => {
+      const res = await fetch('https://mcp.sandbox.paypal.com/mcp', { method: 'POST', headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', ...(auth ? { authorization: `Bearer ${accessToken}` } : {}) }, body });
+      await res.text();
+      return res.status;
+    };
+    const anonymous = await post(false);
+    const restBearer = await post(true);
+    let tools = null;
+    if (restBearer === 200) {
+      const client = new Client({ name: 'shopvoice-pay-spike', version: '0.1.0' });
+      await client.connect(new StreamableHTTPClientTransport(new URL('https://mcp.sandbox.paypal.com/mcp'), { requestInit: { headers: { authorization: `Bearer ${accessToken}` } } }));
+      tools = (await client.listTools()).tools.length;
+      await client.close();
+    }
+    return { status: 'info', evidence: { no_token: anonymous, rest_bearer: restBearer, tools } };
   });
 }
 
