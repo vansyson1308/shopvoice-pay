@@ -1,30 +1,32 @@
 <!-- title: Documentation -->
-<h1>ShopVoice documentation</h1>
-<p class="lead">ShopVoice lets the owner of a small grocery or convenience store run the shop from a conversation: check what is running low, see how sales compare with last week, find out whether a supplier invoice has arrived, and draft and confirm reorders. It works in Claude (web, desktop, mobile, Cowork and Claude Code) and by voice with Alexa+.</p>
+<h1>ShopVoice Pay documentation</h1>
+<p class="lead">ShopVoice Pay is a voice-first purchasing agent for independent grocers. Ask what is running low, reorder by voice, and it pays suppliers through PayPal, only within the spending rules you set. Money is held until delivery and charged only for what arrived. Use it by voice in the ShopVoice Pay console, or from Claude (web, desktop, mobile and Claude Code) through this MCP server.</p>
 
-<div class="note"><b>Server URL:</b> <code>{{MCP_URL}}</code><br>Transport: Streamable HTTP (MCP protocol 2025-11-25). Sign-in: OAuth 2.1, a free ShopVoice account.</div>
+<div class="note"><b>Server URL:</b> <code>{{MCP_URL}}</code><br>Transport: Streamable HTTP (MCP protocol 2025-11-25). Sign-in: OAuth 2.1, a free ShopVoice Pay account.</div>
 
 <h2 id="who">Who it is for</h2>
-<p>ShopVoice is for independent grocery and convenience stores (Vietnamese <i>tạp hóa</i> and similar) that use GroceryClaw to track stock, sales and supplier invoices. It is GroceryClaw's own first-party API. Every tool reads or writes only your shop's records in GroceryClaw.</p>
+<p>ShopVoice Pay is for owners of independent grocery and convenience stores who reorder from a handful of regular suppliers and want that to take less of their day, without giving an AI their wallet. Every tool reads or writes only your own shop's records, and every payment goes through ShopVoice Pay's rules engine and your approvals.</p>
 
 <h2 id="connect">Connect in Claude</h2>
 <h3>From the directory</h3>
-<p>Open <b>Customize → Connectors</b>, find <b>ShopVoice</b> and select <b>Connect</b>. A ShopVoice sign-in window opens.</p>
+<p>Open <b>Customize → Connectors</b>, find <b>ShopVoice Pay</b> and select <b>Connect</b>. A ShopVoice Pay sign-in window opens.</p>
 <h3>As a custom connector</h3>
 <ol>
 <li>In Claude, open <b>Customize → Connectors</b> and select <b>Add custom connector</b>.</li>
-<li>Name: <code>ShopVoice</code>. URL: <code>{{MCP_URL}}</code>. Leave the advanced OAuth fields empty.</li>
-<li>Select <b>Connect</b>. In the ShopVoice window, sign in or create an account, check what the app may do, and select <b>Allow</b>.</li>
-<li>In a chat, turn ShopVoice on from <b>+ → Connectors</b> and ask, for example, "What's running low in my shop?"</li>
+<li>Name: <code>ShopVoice Pay</code>. URL: <code>{{MCP_URL}}</code>. Leave the advanced OAuth fields empty.</li>
+<li>Select <b>Connect</b>. In the ShopVoice Pay window, sign in or create an account, check what the app may do, and select <b>Allow</b>.</li>
+<li>In a chat, turn ShopVoice Pay on from <b>+ → Connectors</b> and ask, for example, "What's running low in my shop?"</li>
 </ol>
 <h3>Claude Code</h3>
 <pre><code>claude mcp add --transport http shopvoice {{MCP_URL}}</code></pre>
-<p>Then run <code>/mcp</code> in a session and choose <b>Authenticate</b> to sign in. The ShopVoice plugin (<a href="https://github.com/vansyson1308/shopvoice-plugin">shopvoice-plugin</a>) adds skills for a daily briefing, restock planning, sales insights and supplier invoices, and uses this same server.</p>
+<p>Then run <code>/mcp</code> in a session and choose <b>Authenticate</b> to sign in.</p>
+<h3>The console</h3>
+<p>The ShopVoice Pay console is the voice app. Select <b>Try the demo</b> for your own private sample shop, then hold the button (or press Space) and speak, or type. It shows every tool call, your approvals, the payment ledger, your spending rules and your suppliers.</p>
 
 <h2 id="account">Your account and your shop</h2>
 <ul>
 <li><b>New accounts get a demo shop with sample data</b>, labelled "Your demo shop (sample data)": a fictional US corner market with 47 products, 4 fictional suppliers, 30 days of sales, 3 supplier invoices, spending rules and a simulated PayPal account, so you can try every tool right away. The sample data resets once a day.</li>
-<li><b>Real shops:</b> ask your shop owner for a GroceryClaw invite code and enter it on your <a href="/account">account page</a>. Your account then switches to the real shop. Connected apps must sign in again so they see the new shop.</li>
+<li><b>Real shops</b> can be linked with an invite code from the shop's owner, on your <a href="/account">account page</a>. This hackathon demo does not offer real shops.</li>
 <li>Prices are in US dollars. Payments run in PayPal's sandbox or a simulated PayPal: no real money moves in the demo.</li>
 </ul>
 
@@ -76,17 +78,18 @@
 </ul>
 
 <h2 id="faq">FAQ</h2>
-<h3>Does ShopVoice read my chats?</h3>
+<h3>Does ShopVoice Pay read my chats in Claude?</h3>
 <p>No. It only receives the tool name and arguments Claude sends, such as a product name or a date range. It never reads your conversation, Claude's memory or your files.</p>
 <h3>Can it pay a supplier?</h3>
 <p>Yes, within the spending rules you set, through PayPal (sandbox in this demo). Money is held until delivery and charged only for what arrived. Anything over your rules waits for your own approval.</p>
 <h3>Where is my data stored?</h3>
-<p>On Amazon Web Services in the United States. See the <a href="/privacy">privacy policy</a>.</p>
+<p>On Render, in the United States (Virginia). See the <a href="/privacy">privacy policy</a>.</p>
 <h3>Something failed</h3>
 <p>Every error message says what to try next. If it keeps failing, write to {{SUPPORT_EMAIL}} (see <a href="/support">support</a>).</p>
 
 <h2 id="changelog">Changelog</h2>
 <ul>
-<li><b>0.2.0 (2026-10)</b>: Claude connector. OAuth 2.1 sign-in (CIMD and DCR), demo shop on sign-up, chat-friendly results, read-only mode, account page, and the ShopVoice plugin.</li>
-<li><b>0.1.0 (2026-09)</b>: first release for Alexa+ (Amazon hackathon): 9 voice-first tools, two-step reorders, per-shop isolation with Postgres row-level security.</li>
+<li><b>0.3.0 (2026-10)</b>: ShopVoice Pay. Supplier payments through PayPal (hold until delivery, charge only what arrived, payouts to suppliers, refunds), spending rules enforced by a deterministic rules engine, owner approvals (console, voice, an app's confirmation form, or PayPal's page), a payment ledger, 7 new tools, and the voice console with a private sample shop per visitor.</li>
+<li><b>0.2.0 (2026-10)</b>: inherited from GroceryClaw's ShopVoice (MIT): OAuth 2.1 sign-in, a demo shop on sign-up, read-only mode and the account page.</li>
+<li><b>0.1.0 (2026-09)</b>: inherited: voice-first stock and sales tools, two-step reorders, per-shop isolation with Postgres row-level security.</li>
 </ul>

@@ -33,13 +33,33 @@ test('every public page renders in English and Vietnamese with config filled in'
 test('docs list every tool and the connection URL; privacy covers the required topics', async () => {
   const srv = await startOAuthServer({ env: { SUPPORT_EMAIL: SUPPORT } });
   try {
-    const docs = await (await fetch(`${srv.url}/docs`)).text();
-    for (const t of ALL_TOOLS) assert.ok(docs.includes(`<code>${t.name}</code>`), `docs mention ${t.name}`);
-    assert.ok(docs.includes('https://shop.test/mcp'));
+    for (const q of ['', '?lang=vi']) {
+      const docs = await (await fetch(`${srv.url}/docs${q}`)).text();
+      for (const t of ALL_TOOLS) assert.ok(docs.includes(`<code>${t.name}</code>`), `docs${q} mention ${t.name}`);
+      assert.ok(docs.includes('https://shop.test/mcp'));
+    }
     const privacy = await (await fetch(`${srv.url}/privacy`)).text();
-    for (const topic of [/What we collect/, /never receives or stores your conversations/, /90 days/, /14 days/, /us-east-1/,
-      /do not sell/, /train AI models/, /Amazon Web Services/, /KiotViet/, /Delete your account/, /under 18/, /Contact/]) {
+    for (const topic of [/This is a demo/, /What we collect/, /never receive or store your conversations/, /vault id/, /90 days/, /3 days/,
+      /Render/, /PayPal/, /us-east-1/, /Amazon Web Services/, /not your words/, /do not sell/, /train AI models/,
+      /Delete your account/, /under 18/, /Contact/]) {
       assert.match(privacy, topic);
+    }
+  } finally {
+    await srv.close();
+  }
+});
+
+test('public pages describe ShopVoice Pay, not the product it was forked from', async () => {
+  const srv = await startOAuthServer({ env: { SUPPORT_EMAIL: SUPPORT } });
+  try {
+    for (const page of ['docs', 'privacy', 'terms', 'support']) {
+      for (const q of ['', '?lang=vi']) {
+        const html = await (await fetch(`${srv.url}/${page}${q}`)).text();
+        assert.match(html, /ShopVoice Pay/, `${page}${q}`);
+        assert.doesNotMatch(html, /KiotViet|Alexa|Zalo|github\.com\/vansyson1308\/groceryclaw/i, `${page}${q}`);
+        // GroceryClaw is named only as the origin of inherited features, in the changelog.
+        for (const m of html.matchAll(/GroceryClaw/g)) assert.equal(page, 'docs', `${page}${q} mentions GroceryClaw at ${m.index}`);
+      }
     }
   } finally {
     await srv.close();

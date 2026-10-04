@@ -15,7 +15,7 @@ import type { z } from 'zod';
 export const SERVER_NAME = 'shopvoice';
 export const SERVER_VERSION = '0.1.0';
 
-/** voice: Alexa simulator / static bearer (spoken sentence); chat: OAuth clients such as Claude (markdown). */
+/** voice: the console / static bearer (spoken sentence); chat: OAuth clients such as Claude (markdown). */
 export type ClientProfile = 'voice' | 'chat';
 
 export interface McpFactoryOptions {
@@ -49,7 +49,7 @@ export function safeErrorText(error: unknown, profile: ClientProfile): string {
 export function safeErrorSpeech(error: unknown): string {
   const message = error instanceof Error ? error.message : '';
   if (error instanceof ShopDataError && error.code === 'profile_missing') {
-    return 'Your shop profile is not set up yet, so I cannot answer that. Please finish setup in the GroceryClaw app.';
+    return 'Your shop profile is not set up yet, so I cannot answer that. Please finish setting up the shop first.';
   }
   if (message.startsWith('custom_period') || message.startsWith('invalid_date')) {
     return 'I need a valid date range in the past, for example from the first to the seventh of this month.';

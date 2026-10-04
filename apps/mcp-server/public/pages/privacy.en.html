@@ -1,57 +1,98 @@
 <!-- title: Privacy policy -->
 <h1>Privacy policy</h1>
-<p class="muted">Effective 27 September 2026. Covers the ShopVoice service at {{BASE_URL}}: the MCP connector, the sign-in and account pages, and the ShopVoice plugin, which only talks to this service.</p>
+<p class="muted">Effective 5 October 2026. This policy covers ShopVoice Pay at {{BASE_URL}}: the MCP connector, the sign-in and account pages, and the ShopVoice Pay console.</p>
+
+<div class="note"><b>This is a demo.</b> Every shop and supplier in it is fictional. Payments run in PayPal's sandbox, or in a simulation that is labelled as one, so no real money moves. Please do not enter real business or personal data beyond your email address.</div>
 
 <h2>Who we are</h2>
-<p>ShopVoice is part of GroceryClaw, an open-source project (MIT licence, <a href="https://github.com/vansyson1308/groceryclaw">github.com/vansyson1308/groceryclaw</a>) run by an individual developer. Contact: {{SUPPORT_EMAIL}}.</p>
+<p>ShopVoice Pay is an open-source project under the MIT licence (<a href="https://github.com/vansyson1308/shopvoice-pay">github.com/vansyson1308/shopvoice-pay</a>). An individual developer runs it, and it was built for a PayPal hackathon. Contact: {{SUPPORT_EMAIL}}.</p>
 
 <h2>What we collect</h2>
 <ul>
-<li><b>Account data:</b> your email address, a scrypt hash of your password (never the password itself), your language, and timestamps of sign-ins and failed sign-ins.</li>
-<li><b>Shop data:</b> products, stock levels, sales totals, suppliers, supplier invoices and purchase-order drafts. For a new account this is generated sample data. For a real shop it is the data you or your shop enter in GroceryClaw, or sync from your point-of-sale system if you turn that on.</li>
-<li><b>Tool-call audit log:</b> for each ShopVoice tool call, the tool name, its arguments with secrets removed, a short result summary, whether it succeeded, and how long it took.</li>
-<li><b>Connection records:</b> the apps you connected (for example Claude), which permissions you granted, and hashed tokens with their creation, use and expiry times.</li>
-<li><b>Technical logs:</b> IP address, time, request path and status, used for rate limiting, security and debugging.</li>
+<li><b>Account data</b> (only if you create an account to connect an app):
+  <ul>
+  <li>your email address;</li>
+  <li>a scrypt hash of your password, never the password itself;</li>
+  <li>your language;</li>
+  <li>the times of successful and failed sign-ins.</li>
+  </ul></li>
+<li><b>Shop data:</b> products, stock, sales, suppliers, supplier invoices, reorder drafts and spending rules. For demo shops this is generated sample data.</li>
+<li><b>Payment records:</b>
+  <ul>
+  <li>for each supplier payment: the amount, its status, PayPal's ids for the order, authorization, capture and refund, and the supplier's PayPal email;</li>
+  <li>who approved it (you in the console, by voice, in an app's confirmation form, or on PayPal's page);</li>
+  <li>an audit trail of every change.</li>
+  </ul>
+  If you connect PayPal, we store the payment token PayPal gives us (a "vault id"), encrypted. We never see your PayPal password or card numbers; you enter those only on PayPal's own pages.</li>
+<li><b>Console conversations:</b> the words you type or say in the console are sent to the AI model, so it can work out what you want, together with the results of the tools it uses.
+  <ul>
+  <li>The console keeps the conversation in memory while you use it.</li>
+  <li>Its logs record only which tools ran and how long they took, not your words.</li>
+  <li>Speech recognition runs in your browser, and your browser's maker may process the audio under its own terms. Spoken replies use your browser's own voice.</li>
+  </ul></li>
+<li><b>Tool-call audit log:</b> for each tool call, we record:
+  <ul>
+  <li>the tool name;</li>
+  <li>its arguments, with tokens and secrets removed;</li>
+  <li>a short result;</li>
+  <li>whether it succeeded, and how long it took.</li>
+  </ul></li>
+<li><b>Connection records:</b> the apps you connected, the permissions you granted, and hashed tokens with their times.</li>
+<li><b>Technical logs:</b> IP address, time, request path and status. We use them for rate limiting, security and debugging.</li>
 </ul>
-<p><b>What we do not collect:</b> ShopVoice only receives what an app sends in a tool call, such as a product name or a date range. It never receives or stores your conversations with Claude, Claude's memory, chat history or your files. We do not collect payment details or health data.</p>
+<p><b>What we do not collect:</b> when you use ShopVoice Pay from Claude's apps, we receive only what the app sends in a tool call, such as a product name or an amount. We never receive or store your conversations with Claude, Claude's memory, chat history or your files. We collect no health data, and no card or bank details.</p>
 
 <h2>Why we use it</h2>
 <ul>
-<li>To answer your requests about your shop and to record the reorders you confirm.</li>
+<li>To answer your requests about your shop, and to pay suppliers only within the rules you set and with the approvals you give.</li>
 <li>To keep each shop's data separate. Every query runs under Postgres row-level security for that one shop.</li>
-<li>To secure the service: sign-in protection, rate limits and abuse detection.</li>
-<li>To fix problems, using the audit log and technical logs.</li>
+<li>To keep an accurate record of every payment: ledger and audit log.</li>
+<li>To secure the service (sign-in protection, rate limits, abuse detection) and to fix problems.</li>
 </ul>
 <p>We do not sell your data. We do not use it for advertising. We do not use it to train AI models.</p>
 
 <h2>Where it is stored and how it is protected</h2>
-<p>ShopVoice runs on Amazon Web Services in the United States (region us-east-1). Data travels over HTTPS (TLS). Disks are encrypted at rest. Tokens, authorization codes and client secrets are stored only as SHA-256 hashes. Passwords are stored only as scrypt hashes. The application's database role cannot read the sign-in tables directly.</p>
+<ul>
+<li>ShopVoice Pay is hosted on Render, in its US East region (Virginia, United States), in a Postgres database on a persistent disk.</li>
+<li>Data travels over HTTPS (TLS).</li>
+<li>Tokens, authorization codes and client secrets are stored only as SHA-256 hashes, and passwords only as scrypt hashes.</li>
+<li>PayPal vault ids are encrypted with a key kept outside the database.</li>
+<li>The application logs in as a database role that is bound by row-level security. It cannot read the sign-in tables directly.</li>
+</ul>
 
 <h2>How long we keep it</h2>
 <ul>
-<li>Tool-call audit log: 90 days, then deleted automatically.</li>
-<li>Technical server logs: 14 days.</li>
-<li>Expired or revoked tokens: deleted about 7 days after they expire. Unused app registrations: deleted after 30 days.</li>
-<li>Account and shop data: until you delete your account. Demo-shop sample data is regenerated every day.</li>
+<li><b>Tool-call audit log:</b> 90 days, then deleted automatically.</li>
+<li><b>"Try the demo" shops in the console:</b> deleted after 3 days without use. "Reset demo" erases a shop's payments and history at once.</li>
+<li><b>An account's sample shop:</b> regenerated every day.</li>
+<li><b>Expired or revoked tokens:</b> deleted about 7 days after they expire. Unused app registrations are deleted after 30 days.</li>
+<li><b>Technical logs:</b> kept by Render for its standard log retention, a matter of days, not months. We do not copy them elsewhere.</li>
+<li><b>Account data:</b> kept until you delete your account.</li>
 </ul>
 
 <h2>Your choices and rights</h2>
 <ul>
-<li><b>Disconnect an app</b> at any time on the <a href="/account">account page</a>, or from Claude's connector settings.</li>
-<li><b>Delete your account</b> yourself on the <a href="/account">account page</a>. This takes effect immediately and erases your demo shop. You can also email {{SUPPORT_EMAIL}}; we complete requests within 30 days.</li>
+<li><b>Disconnect an app</b> at any time on the <a href="/account">account page</a>, or from the app's own connector settings.</li>
+<li><b>Delete your account</b> yourself on the <a href="/account">account page</a>. This takes effect at once and erases your shop. You can also email {{SUPPORT_EMAIL}}; we complete requests within 30 days.</li>
 <li><b>Access or correct your data:</b> email us and we will reply within 30 days.</li>
 </ul>
 
 <h2>Who else processes data</h2>
 <ul>
-<li><b>Amazon Web Services</b> hosts the service.</li>
-<li><b>The app you connect</b> (for example Anthropic's Claude, or Amazon Alexa) receives the tool results it asked for and processes them under its own terms and privacy policy.</li>
-<li><b>KiotViet</b> (a point-of-sale system) receives or sends data only if your shop turns on that optional sync in GroceryClaw.</li>
+<li><b>Render</b> hosts the service and its database.</li>
+<li><b>PayPal</b> processes the payments (sandbox in this demo) under its own privacy statement.
+  <ul>
+  <li>It receives the order amounts and the supplier's PayPal email.</li>
+  <li>It receives your PayPal sign-in when you approve or connect.</li>
+  </ul></li>
+<li><b>Amazon Web Services</b> runs the console's AI model, Claude in Amazon Bedrock, in us-east-1. It receives the words of your console requests and the tool results needed to answer them, under AWS's terms. If the console is configured to use Anthropic's API instead, Anthropic receives them under its terms. With the offline rules engine, nothing is sent to an AI provider.</li>
+<li><b>The app you connect</b> (for example Anthropic's Claude) receives the tool results it asked for, under its own terms.</li>
+<li><b>Your browser's maker</b> may process audio for speech recognition when you speak in the console.</li>
 </ul>
 <p>We share nothing with anyone else unless the law requires it.</p>
 
 <h2>Children</h2>
-<p>ShopVoice is a business tool and is not intended for anyone under 18.</p>
+<p>ShopVoice Pay is a business tool. It is not intended for anyone under 18.</p>
 
 <h2>Changes</h2>
 <p>We will post changes on this page with a new effective date. Significant changes are also announced in the <a href="/docs#changelog">docs changelog</a> before they take effect.</p>

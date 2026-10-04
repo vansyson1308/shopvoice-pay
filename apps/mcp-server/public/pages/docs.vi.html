@@ -1,79 +1,108 @@
 <!-- title: Tài liệu -->
-<h1>Tài liệu ShopVoice</h1>
-<p class="lead">ShopVoice giúp chủ tiệm tạp hóa hoặc cửa hàng tiện lợi quản lý cửa hàng ngay trong cuộc trò chuyện: xem hàng sắp hết, so sánh doanh số với tuần trước, kiểm tra hóa đơn nhà cung cấp đã về chưa, tạo và xác nhận đơn đặt hàng. Dùng được trong Claude (web, máy tính, điện thoại, Cowork, Claude Code) và bằng giọng nói với Alexa+.</p>
+<h1>Tài liệu ShopVoice Pay</h1>
+<p class="lead">ShopVoice Pay là trợ lý mua hàng ưu tiên giọng nói dành cho các cửa hàng tạp hóa độc lập. Bạn hỏi mặt hàng nào sắp hết và đặt hàng lại bằng giọng nói. ShopVoice Pay thanh toán cho nhà cung cấp qua PayPal, nhưng chỉ trong phạm vi quy tắc chi tiêu do bạn đặt. Tiền được giữ tới khi hàng giao, và chỉ bị thu cho phần hàng đã tới. Bạn dùng ShopVoice Pay bằng giọng nói trên console, hoặc từ Claude (web, máy tính, điện thoại và Claude Code) qua máy chủ MCP này.</p>
 
-<div class="note"><b>Địa chỉ máy chủ:</b> <code>{{MCP_URL}}</code><br>Giao thức: Streamable HTTP (MCP 2025-11-25). Đăng nhập: OAuth 2.1 bằng tài khoản ShopVoice miễn phí.</div>
+<div class="note"><b>URL máy chủ:</b> <code>{{MCP_URL}}</code><br>Giao thức: Streamable HTTP (MCP 2025-11-25). Đăng nhập: OAuth 2.1, với một tài khoản ShopVoice Pay miễn phí.<br>Bản demo dùng tiếng Anh và đô la Mỹ: hãy nói hoặc gõ các câu như trong cột "Thử hỏi".</div>
 
 <h2 id="who">Dành cho ai</h2>
-<p>Các tiệm tạp hóa, cửa hàng tiện lợi độc lập dùng GroceryClaw để theo dõi tồn kho, doanh số và hóa đơn nhà cung cấp. ShopVoice là API chính chủ của GroceryClaw: mọi công cụ chỉ đọc/ghi dữ liệu cửa hàng của bạn trong GroceryClaw.</p>
+<p>ShopVoice Pay dành cho chủ cửa hàng tạp hóa độc lập thường đặt hàng lại từ một vài nhà cung cấp quen, muốn việc đó tốn ít thời gian hơn mà không phải giao ví tiền cho AI. Mỗi công cụ chỉ đọc hoặc ghi dữ liệu của chính cửa hàng bạn, và mọi khoản thanh toán đều phải qua bộ quy tắc của ShopVoice Pay và sự đồng ý của bạn.</p>
 
 <h2 id="connect">Kết nối trong Claude</h2>
-<h3>Từ danh mục (directory)</h3>
-<p>Mở <b>Customize → Connectors</b>, tìm <b>ShopVoice</b>, chọn <b>Connect</b>. Cửa sổ đăng nhập ShopVoice sẽ mở ra.</p>
-<h3>Thêm connector tùy chỉnh</h3>
+<h3>Từ danh mục</h3>
+<p>Mở <b>Customize → Connectors</b>, tìm <b>ShopVoice Pay</b> và chọn <b>Connect</b>. Cửa sổ đăng nhập ShopVoice Pay sẽ mở ra.</p>
+<h3>Thêm dưới dạng trình kết nối tùy chỉnh</h3>
 <ol>
-<li>Trong Claude, mở <b>Customize → Connectors</b> → <b>Add custom connector</b>.</li>
-<li>Tên: <code>ShopVoice</code>. URL: <code>{{MCP_URL}}</code>. Để trống các ô OAuth nâng cao.</li>
-<li>Chọn <b>Connect</b>, đăng nhập hoặc tạo tài khoản ShopVoice, xem các quyền rồi chọn <b>Cho phép</b>.</li>
-<li>Trong cuộc trò chuyện, bật ShopVoice ở <b>+ → Connectors</b> và hỏi, ví dụ: "Cửa hàng tôi sắp hết hàng gì?"</li>
+<li>Trong Claude, mở <b>Customize → Connectors</b> và chọn <b>Add custom connector</b>.</li>
+<li>Tên: <code>ShopVoice Pay</code>. URL: <code>{{MCP_URL}}</code>. Để trống các trường OAuth nâng cao.</li>
+<li>Chọn <b>Connect</b>. Trong cửa sổ ShopVoice Pay, đăng nhập hoặc tạo tài khoản, xem ứng dụng được phép làm gì, rồi chọn <b>Allow</b>.</li>
+<li>Trong một cuộc trò chuyện, bật ShopVoice Pay ở <b>+ → Connectors</b> và hỏi, ví dụ "What's running low in my shop?"</li>
 </ol>
 <h3>Claude Code</h3>
 <pre><code>claude mcp add --transport http shopvoice {{MCP_URL}}</code></pre>
-<p>Sau đó gõ <code>/mcp</code> và chọn <b>Authenticate</b> để đăng nhập. Plugin ShopVoice (<a href="https://github.com/vansyson1308/shopvoice-plugin">shopvoice-plugin</a>) bổ sung các kỹ năng: báo cáo đầu ngày, lên kế hoạch nhập hàng, phân tích doanh số, hóa đơn nhà cung cấp; plugin dùng chính máy chủ này.</p>
+<p>Sau đó chạy <code>/mcp</code> trong một phiên và chọn <b>Authenticate</b> để đăng nhập.</p>
+<h3>Console</h3>
+<p>Console ShopVoice Pay là ứng dụng giọng nói. Chọn <b>Try the demo</b> để có cửa hàng mẫu riêng của bạn, rồi giữ nút (hoặc nhấn phím Space) và nói, hoặc gõ. Console hiển thị mọi lần gọi công cụ, các khoản chờ bạn duyệt, sổ cái thanh toán, quy tắc chi tiêu và danh sách nhà cung cấp.</p>
 
 <h2 id="account">Tài khoản và cửa hàng</h2>
 <ul>
-<li><b>Tài khoản mới có sẵn một cửa hàng mẫu</b> ("Cửa hàng mẫu (dữ liệu mẫu)"): 60 sản phẩm, 5 nhà cung cấp, 90 ngày doanh số, 3 hóa đơn, để thử mọi công cụ ngay. Dữ liệu mẫu được làm mới mỗi ngày (đơn nháp mẫu cũng được xóa).</li>
-<li><b>Cửa hàng thật:</b> xin mã mời GroceryClaw từ chủ cửa hàng và nhập ở <a href="/account">trang tài khoản</a>. Tài khoản sẽ chuyển sang cửa hàng thật; các ứng dụng đã kết nối phải đăng nhập lại.</li>
-<li>Khi đăng ký, chọn Tiếng Việt (giá bằng đồng) hoặc English (giá bằng đô la Mỹ).</li>
+<li><b>Tài khoản mới có ngay một cửa hàng demo với dữ liệu mẫu</b>, ghi là "Your demo shop (sample data)". Đó là một cửa hàng tiện lợi hư cấu ở Mỹ, gồm:
+  <ul>
+  <li>47 sản phẩm và 4 nhà cung cấp hư cấu;</li>
+  <li>30 ngày doanh số và 3 hóa đơn nhà cung cấp;</li>
+  <li>quy tắc chi tiêu và một tài khoản PayPal mô phỏng.</li>
+  </ul>
+  Nhờ vậy bạn thử được mọi công cụ ngay. Dữ liệu mẫu được đặt lại mỗi ngày.</li>
+<li><b>Cửa hàng thật</b> có thể được liên kết bằng mã mời từ chủ cửa hàng, tại <a href="/account">trang tài khoản</a>. Bản demo cho hackathon này không cung cấp cửa hàng thật.</li>
+<li>Giá tính bằng đô la Mỹ. Thanh toán chạy trên sandbox của PayPal hoặc một PayPal mô phỏng: trong bản demo không có tiền thật nào được chuyển.</li>
 </ul>
 
 <h2 id="tools">Công cụ</h2>
 <div class="table"><table>
 <tr><th>Công cụ</th><th>Chức năng</th><th>Thử hỏi</th><th>Quyền</th></tr>
-<tr><td><code>get_daily_briefing</code></td><td>Doanh số hôm qua so với cùng thứ tuần trước, số mặt hàng sắp hết, hóa đơn chưa đồng bộ</td><td>"Báo cáo đầu ngày cho tôi"</td><td>đọc</td></tr>
-<tr><td><code>get_low_stock</code></td><td>Mặt hàng dưới mức tối thiểu, gấp nhất trước, kèm số ngày còn đủ bán</td><td>"Hàng gì sắp hết?"</td><td>đọc</td></tr>
-<tr><td><code>get_stock_level</code></td><td>Tồn kho một mặt hàng theo tên hoặc mã vạch</td><td>"Còn bao nhiêu sữa tươi?"</td><td>đọc</td></tr>
-<tr><td><code>get_sales_summary</code></td><td>Doanh thu và số lượng bán trong một khoảng thời gian, có so sánh</td><td>"Doanh số hôm qua so với thứ Sáu tuần trước?"</td><td>đọc</td></tr>
-<tr><td><code>get_top_movers</code></td><td>Mặt hàng bán chạy nhất / chậm nhất</td><td>"Top 5 mặt hàng doanh thu cao nhất tuần này"</td><td>đọc</td></tr>
-<tr><td><code>get_invoice_status</code></td><td>Hóa đơn nhà cung cấp gần đây: đã về, đã khớp sản phẩm, đã đồng bộ với máy bán hàng</td><td>"Hóa đơn Sunrise Beverages về chưa?"</td><td>đọc</td></tr>
-<tr><td><code>suggest_reorder</code></td><td>Gợi ý nhập gì, bao nhiêu theo từng nhà cung cấp ((số ngày giao hàng + 7) × bán trung bình mỗi ngày − tồn kho, làm tròn lên theo quy cách)</td><td>"Nên nhập gì từ nhà cung cấp sữa?"</td><td>đọc</td></tr>
-<tr><td><code>create_reorder_draft</code></td><td>Tạo đơn đặt hàng nháp (mỗi nhà cung cấp một đơn); chưa đặt gì</td><td>"Lập đơn nhập sữa và trứng"</td><td>ghi</td></tr>
-<tr><td><code>confirm_reorder</code></td><td>Xác nhận các đơn nháp trong sổ đặt hàng của cửa hàng</td><td>"Đồng ý, xác nhận"</td><td>ghi (Claude hỏi bạn trước)</td></tr>
+<tr><td><code>get_daily_briefing</code></td><td>Doanh số hôm qua so với cùng thứ tuần trước, số mặt hàng sắp hết, các hóa đơn chưa nhập kho</td><td>"Give me my shop briefing"</td><td>đọc</td></tr>
+<tr><td><code>get_low_stock</code></td><td>Các sản phẩm bằng hoặc dưới mức tối thiểu, gấp nhất trước, kèm số ngày còn đủ hàng</td><td>"What's running low?"</td><td>đọc</td></tr>
+<tr><td><code>get_stock_level</code></td><td>Tồn kho của một sản phẩm theo tên hoặc mã vạch</td><td>"How much whole milk do I have?"</td><td>đọc</td></tr>
+<tr><td><code>get_sales_summary</code></td><td>Doanh thu và số lượng bán trong một khoảng thời gian, so với cùng thứ hoặc kỳ trước</td><td>"How were sales yesterday compared to last Friday?"</td><td>đọc</td></tr>
+<tr><td><code>get_top_movers</code></td><td>Mặt hàng bán chạy nhất hoặc chậm nhất theo số lượng hoặc doanh thu</td><td>"Top 5 products by revenue this week"</td><td>đọc</td></tr>
+<tr><td><code>get_invoice_status</code></td><td>Hóa đơn nhà cung cấp gần đây: đã tới, đã khớp sản phẩm, hay đã nhập kho</td><td>"Did the Harbor Wholesale invoice arrive?"</td><td>đọc</td></tr>
+<tr><td><code>suggest_reorder</code></td><td>Nên đặt lại gì từ mỗi nhà cung cấp và bao nhiêu: (thời gian giao + 7 ngày) × lượng bán trung bình mỗi ngày − tồn kho, làm tròn lên theo quy cách đóng gói</td><td>"What should I reorder from the dairy supplier?"</td><td>đọc</td></tr>
+<tr><td><code>create_reorder_draft</code></td><td>Tạo bản nháp đơn đặt hàng, mỗi nhà cung cấp một bản. Chưa đặt gì cả</td><td>"Draft a reorder for milk and eggs"</td><td>ghi</td></tr>
+<tr><td><code>confirm_reorder</code></td><td>Xác nhận các bản nháp và thanh toán cho từng nhà cung cấp qua PayPal trong phạm vi quy tắc chi tiêu: giữ tiền tới khi giao hàng, hỏi bạn duyệt khi vượt quy tắc, chặn khi không được phép</td><td>"Yes, confirm it"</td><td>ghi (Claude hỏi bạn trước)</td></tr>
+<tr><td><code>get_payment_status</code></td><td>Tình trạng từng khoản thanh toán: chờ duyệt, đang giữ, đã thu, đã giải phóng, đã hoàn tiền hay bị chặn; khi nào hết thời hạn giữ</td><td>"Did the egg payment go through?"</td><td>đọc</td></tr>
+<tr><td><code>record_delivery</code></td><td>Ghi nhận hàng đã tới; chỉ thu tiền phần đó và giải phóng phần còn lại của khoản giữ, rồi trả cho nhà cung cấp</td><td>"Only 8 crates of milk came"</td><td>ghi (Claude hỏi bạn trước)</td></tr>
+<tr><td><code>request_refund</code></td><td>Hoàn một khoản đã thu của nhà cung cấp về PayPal của bạn, qua hai bước</td><td>"Refund the bread, it was stale"</td><td>ghi (Claude hỏi bạn trước)</td></tr>
+<tr><td><code>get_spend_summary</code></td><td>Chi cho nhà cung cấp hôm nay và tuần này so với ngân sách, số tiền đang giữ, các khoản chờ duyệt</td><td>"How much have I spent on suppliers this week?"</td><td>đọc</td></tr>
+<tr><td><code>explain_payment</code></td><td>Vì sao một khoản được trả, phải chờ bạn duyệt hay bị chặn, và chuyện gì đã xảy ra sau đó</td><td>"Why did the egg order need my OK?"</td><td>đọc</td></tr>
+<tr><td><code>get_spending_policy</code></td><td>Hạn mức tự động trả, ngân sách, mức trần cứng, nhà cung cấp được duyệt và các kiểm tra giá</td><td>"What are my spending rules?"</td><td>đọc</td></tr>
+<tr><td><code>set_spending_policy</code></td><td>Thay đổi quy tắc. Siết chặt có hiệu lực ngay; nới lỏng cần chính bạn duyệt bên ngoài cuộc trò chuyện</td><td>"Lower my auto-pay limit to $80"</td><td>ghi (Claude hỏi bạn trước)</td></tr>
 </table></div>
+<p>Tài nguyên <code>shop://profile</code> chứa tên cửa hàng, tiền tệ và múi giờ. Prompt <code>morning_briefing</code> bắt đầu bản tóm tắt hằng ngày.</p>
 
-<h2 id="safety">Đặt hàng an toàn thế nào</h2>
+<h2 id="safety">Thanh toán được bảo vệ thế nào</h2>
 <ol>
-<li><code>create_reorder_draft</code> chỉ ghi đơn nháp, trả về một mã xác nhận dùng một lần, hết hạn sau 5 phút, chỉ dùng được cho cửa hàng của bạn.</li>
-<li><code>confirm_reorder</code> được đánh dấu là thao tác thay đổi dữ liệu nên Claude sẽ hỏi bạn trước khi chạy. Xác nhận chỉ đổi trạng thái đơn trong sổ của cửa hàng; <b>ShopVoice không liên hệ nhà cung cấp và không bao giờ chuyển tiền</b>.</li>
-<li>Xác nhận lại lần nữa không có tác dụng; đơn nháp hết hạn không thể xác nhận.</li>
+<li><code>create_reorder_draft</code> chỉ ghi bản nháp. Công cụ trả về một mã xác nhận dùng một lần, hết hạn sau 5 phút và chỉ có hiệu lực với cửa hàng của bạn.</li>
+<li><code>confirm_reorder</code> được đánh dấu là thao tác có tác động, nên Claude hỏi bạn trước khi chạy. AI chỉ đề xuất: bộ quy tắc của chính ShopVoice Pay quyết định từng khoản, và chỉ mã trên máy chủ mới làm việc với PayPal.</li>
+<li>Trong phạm vi quy tắc, tiền được <b>giữ</b> trên PayPal chứ chưa bị thu. Bạn chỉ bị thu cho phần hàng đã giao; phần còn lại được giải phóng.</li>
+<li>Khi vượt quy tắc (ví dụ quá hạn mức tự động trả, hoặc giá tăng đột ngột), ShopVoice Pay hỏi trực tiếp bạn: trong hộp xác nhận của chính Claude nếu ứng dụng hỗ trợ, nếu không thì trên trang duyệt của PayPal. Việc duyệt không bao giờ đi qua AI. Nếu không cách nào tới được bạn, không có gì được trả.</li>
+<li>Nhà cung cấp ngoài danh sách được duyệt, các mức trần cứng và đơn trùng lặp đều bị chặn, kể cả khi có duyệt.</li>
+<li>Xác nhận cùng bản nháp hai lần không bao giờ trả tiền hai lần, và bản nháp đã hết hạn thì không thể xác nhận.</li>
 </ol>
 
 <h2 id="permissions">Quyền truy cập</h2>
 <ul>
-<li><code>shop.read</code>: xem tồn kho, doanh số, nhà cung cấp, hóa đơn.</li>
-<li><code>shop.write</code>: tạo và xác nhận đơn nháp. Bạn có thể bỏ chọn ở màn hình cho phép để chỉ cho xem.</li>
-<li><code>offline_access</code>: giữ kết nối; mã truy cập có hạn 1 giờ và được làm mới tự động (tối đa 30 ngày không dùng).</li>
+<li><code>shop.read</code>: đọc tồn kho, doanh số, nhà cung cấp và hóa đơn.</li>
+<li><code>shop.write</code>: tạo và xác nhận bản nháp đặt hàng, thanh toán cho nhà cung cấp trong phạm vi quy tắc, ghi nhận giao hàng, hoàn tiền và thay đổi quy tắc. Bạn có thể bỏ chọn quyền này ở màn hình đồng ý và chỉ giữ quyền đọc. Nếu sau đó bạn yêu cầu đặt hàng, Claude sẽ đề nghị bạn kết nối lại.</li>
+<li><code>offline_access</code>: giữ kết nối; token truy cập có hạn 1 giờ và được tự động làm mới, tối đa 30 ngày không hoạt động.</li>
 </ul>
-<p>Xem và thu hồi ứng dụng, hoặc xóa tài khoản, tại <a href="/account">trang tài khoản</a>.</p>
+<p>Xem và thu hồi ứng dụng đã kết nối, hoặc xóa tài khoản, tại <a href="/account">trang tài khoản</a>.</p>
 
 <h2 id="limits">Giới hạn</h2>
 <ul>
-<li>120 yêu cầu/phút cho mỗi cửa hàng; đăng nhập sai 5 lần sẽ khóa tài khoản 15 phút.</li>
-<li>Danh sách ngắn gọn: tối đa 50 mặt hàng sắp hết, 10 mặt hàng bán chạy/hóa đơn mỗi lần.</li>
-<li>Doanh số theo ngày, theo múi giờ của cửa hàng (mặc định Asia/Ho_Chi_Minh).</li>
+<li>120 yêu cầu mỗi phút cho mỗi cửa hàng. Đăng nhập bị giới hạn tần suất, và tài khoản bị khóa 15 phút sau 5 lần nhập sai mật khẩu.</li>
+<li>Danh sách được giữ ngắn có chủ ý: tối đa 50 mặt hàng sắp hết, và tối đa 10 mặt hàng bán chạy hoặc hóa đơn mỗi lần gọi.</li>
+<li>Doanh số là tổng theo ngày; ngày tính theo múi giờ của cửa hàng (America/New_York với cửa hàng demo).</li>
 </ul>
 
 <h2 id="faq">Câu hỏi thường gặp</h2>
-<h3>ShopVoice có đọc cuộc trò chuyện của tôi không?</h3>
-<p>Không. ShopVoice chỉ nhận tên công cụ và tham số Claude gửi (ví dụ tên sản phẩm, khoảng ngày), không đọc hội thoại, bộ nhớ của Claude hay tệp của bạn.</p>
-<h3>Có thanh toán cho nhà cung cấp không?</h3>
-<p>Không. ShopVoice chỉ ghi đơn nháp và xác nhận trong sổ của cửa hàng.</p>
-<h3>Dữ liệu lưu ở đâu?</h3>
-<p>Trên Amazon Web Services tại Hoa Kỳ. Xem <a href="/privacy?lang=vi">chính sách quyền riêng tư</a>.</p>
+<h3>ShopVoice Pay có đọc cuộc trò chuyện của tôi trong Claude không?</h3>
+<p>Không. ShopVoice Pay chỉ nhận tên công cụ và các tham số mà Claude gửi, chẳng hạn tên sản phẩm hay khoảng thời gian. ShopVoice Pay không bao giờ đọc hội thoại, bộ nhớ của Claude hay tệp của bạn.</p>
+<h3>Nó có trả tiền cho nhà cung cấp được không?</h3>
+<p>Có, trong phạm vi quy tắc chi tiêu bạn đặt, qua PayPal (sandbox trong bản demo này). Tiền được giữ tới khi giao hàng và chỉ bị thu cho phần đã tới. Mọi khoản vượt quy tắc đều chờ chính bạn duyệt.</p>
+<h3>Dữ liệu của tôi được lưu ở đâu?</h3>
+<p>Trên Render, tại Hoa Kỳ (Virginia). Xem <a href="/privacy?lang=vi">chính sách quyền riêng tư</a>.</p>
+<h3>Có lỗi xảy ra</h3>
+<p>Mỗi thông báo lỗi đều nói nên thử gì tiếp theo. Nếu vẫn lỗi, hãy viết tới {{SUPPORT_EMAIL}} (xem <a href="/support?lang=vi">hỗ trợ</a>).</p>
 
 <h2 id="changelog">Nhật ký thay đổi</h2>
 <ul>
-<li><b>0.2.0 (10/2026)</b>: Connector cho Claude: đăng nhập OAuth 2.1 (CIMD và DCR), cửa hàng mẫu khi đăng ký, kết quả dễ đọc trong chat, chế độ chỉ xem, trang tài khoản, plugin ShopVoice.</li>
-<li><b>0.1.0 (09/2026)</b>: Bản đầu cho Alexa+: 9 công cụ giọng nói, đặt hàng hai bước, tách dữ liệu từng cửa hàng bằng Postgres RLS.</li>
+<li><b>0.3.0 (2026-10)</b>: ShopVoice Pay. Gồm:
+  <ul>
+  <li>thanh toán cho nhà cung cấp qua PayPal: giữ tiền tới khi giao hàng, chỉ thu phần đã tới, chuyển tiền cho nhà cung cấp, hoàn tiền;</li>
+  <li>quy tắc chi tiêu được thực thi bởi một bộ quy tắc tất định;</li>
+  <li>chủ cửa hàng duyệt trên console, bằng giọng nói, trong biểu mẫu xác nhận của ứng dụng, hoặc trên trang PayPal;</li>
+  <li>sổ cái thanh toán và 7 công cụ mới;</li>
+  <li>console giọng nói, với cửa hàng mẫu riêng cho mỗi khách.</li>
+  </ul></li>
+<li><b>0.2.0 (2026-10)</b>: kế thừa từ ShopVoice của GroceryClaw (MIT): đăng nhập OAuth 2.1, cửa hàng demo khi đăng ký, chế độ chỉ đọc và trang tài khoản.</li>
+<li><b>0.1.0 (2026-09)</b>: kế thừa: các công cụ tồn kho và doanh số ưu tiên giọng nói, đặt hàng hai bước, tách biệt dữ liệu từng cửa hàng bằng row-level security của Postgres.</li>
 </ul>
