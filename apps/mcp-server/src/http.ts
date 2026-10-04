@@ -13,6 +13,7 @@ import type { McpServerConfig } from './config.js';
 import { ALL_TOOLS } from './tool-catalog.js';
 import type { PaymentsService } from './payments/service.js';
 import type { OwnerApi } from './owner-api.js';
+import type { DemoShops } from './demo-shops.js';
 import { createOAuthServer } from './oauth/server.js';
 import type { OAuthServer } from './oauth/server.js';
 import type { OAuthStore } from './oauth/store.js';
@@ -67,6 +68,8 @@ export interface McpHttpDeps {
   readonly payments?: PaymentsService;
   /** Console owner API (/owner/api/*, static tokens only) and the PayPal webhook (/webhooks/paypal). */
   readonly owner?: OwnerApi;
+  /** "Try the demo" visitor shops, created by the console (POST /owner/demo-shops). */
+  readonly demoShops?: DemoShops;
 }
 
 /**
@@ -168,6 +171,8 @@ export function createMcpHttpHandler(deps: McpHttpDeps): McpHttpHandler {
   const tokenCache = new Map<string, CachedToken>();
   const tenantLimiter = new InMemoryTokenBucketRateLimiter(config.rateLimitPerMinute, config.rateLimitPerMinute);
   const authFailLimiter = new InMemoryTokenBucketRateLimiter(config.authFailuresPerMinute, config.authFailuresPerMinute);
+  // At most ~120 new visitor shops an hour across all visitors.
+  const demoShopLimiter = new InMemoryTokenBucketRateLimiter(30, 2);
   const oauth: OAuthServer | null = config.publicBaseUrl && deps.oauth
     ? createOAuthServer({
       store: deps.oauth.store,
@@ -392,6 +397,26 @@ export function createMcpHttpHandler(deps: McpHttpDeps): McpHttpHandler {
     await owner.handle(req, res, url, tenantId);
   }
 
+  /**
+   * The console asks for a private sample shop for a new visitor. Gated by a
+   * secret shared with the console (server-to-server) and a global cap; the
+   * console also limits per visitor IP.
+   */
+  async function handleDemoShop(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    const given = header(req, 'x-demo-provision-secret') ?? '';
+    if (!deps.demoShops || !config.demoProvisionSecret || !originVerified(given, config.demoProvisionSecret) || header(req, 'origin')) {
+      sendJson(res, 404, { error: 'not_found' });
+      return;
+    }
+    if (!demoShopLimiter.consume('global').allowed) {
+      sendJson(res, 429, { error: 'rate_limited' }, { 'retry-after': '60' });
+      return;
+    }
+    const shop = await deps.demoShops.create();
+    logger.info('demo_shop_created', { tenant_id: shop.tenantId });
+    sendJson(res, 201, { token: shop.token });
+  }
+
   async function sweepIdleSessions(): Promise<number> {
     const cutoff = now() - config.sessionIdleSeconds * 1000;
     let closed = 0;
@@ -431,6 +456,10 @@ export function createMcpHttpHandler(deps: McpHttpDeps): McpHttpHandler {
         }
         if (deps.owner && url.pathname === '/webhooks/paypal' && req.method === 'POST') {
           await deps.owner.handleWebhook(req, res);
+          return;
+        }
+        if (url.pathname === '/owner/demo-shops' && req.method === 'POST') {
+          await handleDemoShop(req, res);
           return;
         }
         if (deps.owner && url.pathname.startsWith('/owner/api/')) {

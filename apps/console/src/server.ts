@@ -1,6 +1,6 @@
 import { createServer } from 'node:http';
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
+import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { extname, join, normalize } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -34,6 +34,15 @@ export interface SimConfig {
   readonly originVerifySecret: string;
   /** The MCP server's owner API (console screens, PayPal returns). Derived from mcpUrl when unset. */
   readonly ownerApiUrl: string;
+  /**
+   * When set, every visitor gets a private sample shop ("Try the demo"),
+   * created on the MCP server with this shared secret. Unset: one shared shop
+   * (SIM_MCP_TOKEN).
+   */
+  readonly demoProvisionSecret: string;
+  readonly demoProvisionUrl: string;
+  /** Mark the session cookie Secure (behind HTTPS). */
+  readonly secureCookies: boolean;
 }
 
 export function loadSimConfig(env: Record<string, string | undefined>): SimConfig {
@@ -53,7 +62,10 @@ export function loadSimConfig(env: Record<string, string | undefined>): SimConfi
     anchorDate: env.DEMO_ANCHOR_DATE ?? '',
     shopTimezone: env.SIM_SHOP_TIMEZONE ?? 'America/New_York',
     originVerifySecret: env.ORIGIN_VERIFY_SECRET ?? '',
-    ownerApiUrl: env.SIM_OWNER_API_URL ?? new URL('/owner/api', env.SIM_MCP_URL ?? 'http://127.0.0.1:8090/mcp').href
+    ownerApiUrl: env.SIM_OWNER_API_URL ?? new URL('/owner/api', env.SIM_MCP_URL ?? 'http://127.0.0.1:8090/mcp').href,
+    demoProvisionSecret: env.DEMO_PROVISION_SECRET ?? '',
+    demoProvisionUrl: new URL('/owner/demo-shops', env.SIM_MCP_URL ?? 'http://127.0.0.1:8090/mcp').href,
+    secureCookies: env.SIM_SECURE_COOKIES === 'true'
   };
 }
 
@@ -108,24 +120,108 @@ export interface SimDeps {
   readonly staticDir: string;
   /** Test seam for the owner API calls. */
   readonly fetch?: Parameters<typeof createOwnerRoutes>[2];
+  /** MCP connection for a visitor's shop token (visitor mode). */
+  readonly toolboxFor?: (token: string) => Toolbox;
+}
+
+/** One shop as seen by one browser: its MCP credential and connection, and its conversations. */
+interface ShopSession {
+  readonly id: string;
+  readonly token: string;
+  readonly toolbox: Toolbox;
+  readonly conversations: Map<string, Conversation>;
+  lastSeenMs: number;
+}
+
+const SESSION_COOKIE = 'svc_sid';
+const SESSION_IDLE_MS = 4 * 3600_000;
+const MAX_VISITOR_SESSIONS = 1000;
+
+function cookieValue(req: IncomingMessage, name: string): string | null {
+  const header = req.headers.cookie ?? '';
+  for (const part of header.split(';')) {
+    const [k, ...v] = part.trim().split('=');
+    if (k === name) return v.join('=');
+  }
+  return null;
 }
 
 export function createSimHandler(deps: SimDeps) {
-  const { config, logger, toolbox, speech } = deps;
-  const conversations = new Map<string, Conversation>();
+  const { config, logger, speech } = deps;
+  const visitorMode = config.demoProvisionSecret.length > 0;
+  const shared: ShopSession = { id: 'shared', token: config.mcpToken, toolbox: deps.toolbox, conversations: new Map(), lastSeenMs: Date.now() };
+  const visitors = new Map<string, ShopSession>();
   const limiter = new InMemoryTokenBucketRateLimiter(config.turnsPerMinute, config.turnsPerMinute);
-  const owner = createOwnerRoutes({
-    ownerApiUrl: config.ownerApiUrl,
-    token: config.mcpToken,
-    ...(config.originVerifySecret ? { extraHeaders: { 'x-origin-verify': config.originVerifySecret } } : {})
-  }, logger, deps.fetch);
+  // New visitor shops: a burst of 3 per IP, then one every 10 minutes.
+  const newShopLimiter = new InMemoryTokenBucketRateLimiter(3, 0.1);
+  const originHeaders: Record<string, string> = config.originVerifySecret ? { 'x-origin-verify': config.originVerifySecret } : {};
+  const owner = createOwnerRoutes({ ownerApiUrl: config.ownerApiUrl, ...(config.originVerifySecret ? { extraHeaders: originHeaders } : {}) }, logger, deps.fetch);
+  const toolboxFor = deps.toolboxFor ?? ((token: string) => new McpToolbox(config.mcpUrl, token, originHeaders));
+  const fetchImpl = (deps.fetch ?? fetch) as NonNullable<SimDeps['fetch']>;
 
   function authorized(req: IncomingMessage): boolean {
     if (!config.accessCode) return true;
     return req.headers['x-sim-access'] === config.accessCode;
   }
 
-  function conversationFor(id: unknown): Conversation {
+  function sweepSessions(now: number): void {
+    for (const [id, s] of visitors) {
+      if (now - s.lastSeenMs > SESSION_IDLE_MS) {
+        visitors.delete(id);
+        void s.toolbox.close().catch(() => {});
+      }
+    }
+  }
+
+  /** The caller's shop: the shared one, or (visitor mode) the one bound to the session cookie. */
+  function sessionFor(req: IncomingMessage): ShopSession | null {
+    if (!visitorMode) return shared;
+    const id = cookieValue(req, SESSION_COOKIE);
+    const session = id ? visitors.get(id) : undefined;
+    if (!session) return null;
+    session.lastSeenMs = Date.now();
+    return session;
+  }
+
+  async function startSession(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    if (!visitorMode) {
+      send(res, 200, { mode: 'shared', ready: true });
+      return;
+    }
+    if (sessionFor(req)) {
+      send(res, 200, { mode: 'visitor', ready: true });
+      return;
+    }
+    const ip = req.socket.remoteAddress ?? 'unknown';
+    if (!newShopLimiter.consume(ip).allowed) {
+      send(res, 429, { error: 'rate_limited', message: 'Too many new demo shops from this address. Try again in a few minutes.' });
+      return;
+    }
+    const now = Date.now();
+    sweepSessions(now);
+    if (visitors.size >= MAX_VISITOR_SESSIONS) {
+      send(res, 503, { error: 'busy', message: 'The demo is busy right now. Try again shortly.' });
+      return;
+    }
+    const upstream = await fetchImpl(config.demoProvisionUrl, {
+      method: 'POST',
+      headers: { ...originHeaders, 'x-demo-provision-secret': config.demoProvisionSecret, 'content-type': 'application/json' },
+      body: '{}'
+    });
+    const body = JSON.parse((await upstream.text()) || '{}') as { token?: unknown };
+    if (upstream.status !== 201 || typeof body.token !== 'string') {
+      logger.warn('console_demo_shop_failed', { status: upstream.status });
+      send(res, upstream.status === 429 ? 429 : 502, { error: 'demo_unavailable', message: 'Could not create your demo shop. Try again shortly.' });
+      return;
+    }
+    const id = randomBytes(32).toString('base64url');
+    visitors.set(id, { id, token: body.token, toolbox: toolboxFor(body.token), conversations: new Map(), lastSeenMs: now });
+    const cookie = `${SESSION_COOKIE}=${id}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${Math.floor(SESSION_IDLE_MS / 1000)}${config.secureCookies ? '; Secure' : ''}`;
+    send(res, 201, { mode: 'visitor', ready: true }, { 'set-cookie': cookie });
+  }
+
+  function conversationFor(session: ShopSession, id: unknown): Conversation {
+    const conversations = session.conversations;
     const now = Date.now();
     for (const [key, c] of conversations) if (now - c.lastSeenMs > 30 * 60_000) conversations.delete(key);
     if (typeof id === 'string' && conversations.has(id)) return conversations.get(id) as Conversation;
@@ -154,7 +250,7 @@ export function createSimHandler(deps: SimDeps) {
     }
   }
 
-  async function handleTurn(req: IncomingMessage, res: ServerResponse): Promise<void> {
+  async function handleTurn(session: ShopSession, req: IncomingMessage, res: ServerResponse): Promise<void> {
     const ip = req.socket.remoteAddress ?? 'unknown';
     if (!limiter.consume(ip).allowed) {
       send(res, 429, { error: 'rate_limited', reply: 'One moment please, too many requests.' });
@@ -166,8 +262,8 @@ export function createSimHandler(deps: SimDeps) {
       send(res, 400, { error: 'text_required' });
       return;
     }
-    const conversation = conversationFor(body.conversationId);
-    const turn = { conversation, userText: text, toolbox, today: shopToday(config), now: Date.now };
+    const conversation = conversationFor(session, body.conversationId);
+    const turn = { conversation, userText: text, toolbox: session.toolbox, today: shopToday(config), now: Date.now };
     let result;
     let fallback = false;
     try {
@@ -211,7 +307,8 @@ export function createSimHandler(deps: SimDeps) {
   }
 
   return {
-    conversations,
+    conversations: shared.conversations,
+    visitorSessions: () => visitors.size,
     async handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
       const url = new URL(req.url ?? '/', 'http://localhost');
       try {
@@ -230,7 +327,13 @@ export function createSimHandler(deps: SimDeps) {
         }
         if (req.method === 'GET' && url.pathname === '/readyz') {
           try {
-            const tools = await toolbox.listTools();
+            if (visitorMode && !config.mcpToken) {
+              const up = await fetchImpl(new URL('/healthz', config.mcpUrl).href, { method: 'GET', headers: originHeaders });
+              if (up.status !== 200) throw new Error('mcp_unhealthy');
+              send(res, 200, { status: 'ready', mode: 'visitor' });
+              return;
+            }
+            const tools = await deps.toolbox.listTools();
             send(res, 200, { status: 'ready', tools: tools.length });
           } catch {
             send(res, 503, { status: 'not_ready', checks: { mcp: 'fail' } });
@@ -242,27 +345,46 @@ export function createSimHandler(deps: SimDeps) {
             send(res, 401, { error: 'access_code_required' });
             return;
           }
+          if (req.method === 'POST' && url.pathname === '/api/session') return await startSession(req, res);
+          const session = sessionFor(req);
           if (req.method === 'GET' && url.pathname === '/api/config') {
             send(res, 200, {
               brain: deps.brain.kind, model: deps.brain.model, tts: speech.kind, voice: speech.voice,
-              mcpUrl: config.mcpUrl, protocolVersion: toolbox.protocolVersion() ?? null, today: shopToday(config),
-              accessCodeRequired: Boolean(config.accessCode)
+              mcpUrl: config.mcpUrl, protocolVersion: session?.toolbox.protocolVersion() ?? null, today: shopToday(config),
+              accessCodeRequired: Boolean(config.accessCode), mode: visitorMode ? 'visitor' : 'shared', hasShop: !!session
             });
             return;
           }
-          if (url.pathname.startsWith('/api/owner/')) return await owner.proxy(req, res, url);
-          if (req.method === 'POST' && url.pathname === '/api/turn') return await handleTurn(req, res);
+          if (!session) {
+            send(res, 401, { error: 'no_session', message: 'Start the demo first (Try the demo).' });
+            return;
+          }
+          if (url.pathname.startsWith('/api/owner/')) {
+            const status = await owner.proxy(session.token, req, res, url);
+            // A reset shop starts a fresh conversation, too.
+            if (status === 200 && url.pathname === '/api/owner/demo/reset') session.conversations.clear();
+            return;
+          }
+          if (req.method === 'POST' && url.pathname === '/api/turn') return await handleTurn(session, req, res);
           if (req.method === 'POST' && url.pathname === '/api/tts') return await handleTts(req, res);
           if (req.method === 'POST' && url.pathname === '/api/reset') {
             const body = await readJson(req);
-            if (typeof body.conversationId === 'string') conversations.delete(body.conversationId);
+            if (typeof body.conversationId === 'string') session.conversations.delete(body.conversationId);
             send(res, 200, { ok: true });
             return;
           }
           send(res, 404, { error: 'not_found' });
           return;
         }
-        if (await owner.handlePublic(req, res, url)) return;
+        if (owner.isPublicPath(url.pathname)) {
+          const session = sessionFor(req);
+          if (!session) {
+            res.writeHead(303, { location: '/', ...SECURITY_HEADERS });
+            res.end();
+            return;
+          }
+          if (await owner.handlePublic(session.token, req, res, url)) return;
+        }
         if (req.method === 'GET' && (url.pathname === '/' || url.pathname.startsWith('/static/'))) {
           await serveStatic(res, url.pathname);
           return;
@@ -284,7 +406,7 @@ export function createSimHandler(deps: SimDeps) {
 async function main(): Promise<void> {
   const logger = createLogger({ service: 'console', level: (process.env.LOG_LEVEL ?? 'info') as LogLevel });
   const config = loadSimConfig(process.env);
-  if (config.mcpToken.length < 16) throw new Error('SIM_MCP_TOKEN (the MCP bearer token for the demo tenant) is required');
+  if (config.mcpToken.length < 16 && !config.demoProvisionSecret) throw new Error('SIM_MCP_TOKEN (the MCP bearer token for the demo tenant) or DEMO_PROVISION_SECRET (a shop per visitor) is required');
   const fallbackBrain = new RulesBrain();
   const brain: Brain = config.brain === 'bedrock' ? new BedrockBrain(config.bedrockModelId, config.awsRegion) : fallbackBrain;
   const speech: SpeechClient = config.tts === 'polly' ? new PollySpeech(config.pollyVoice, config.awsRegion, config.pollyEngine) : new BrowserSpeech();

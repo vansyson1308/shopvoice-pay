@@ -264,6 +264,19 @@ export class MemoryShopStore implements ShopStore {
   removeTenant(tenantId: string): void {
     delete (this.dataset.tenants as Record<string, MemoryTenantData>)[tenantId];
     this.paymentsData.delete(tenantId);
+    for (const [hash, owner] of this.tokenHashes) if (owner === tenantId) this.tokenHashes.delete(hash);
+  }
+
+  /** Registers a static bearer token (SHA-256 hex) for a tenant ("Try the demo" visitor shops). */
+  addTokenHash(tokenHash: string, tenantId: string): void {
+    this.tokenHashes.set(tokenHash, tenantId);
+  }
+
+  /** Replaces a tenant's data with a fresh copy and forgets its drafts and payments (demo reset). */
+  resetTenant(tenantId: string, data: MemoryTenantData): void {
+    (this.dataset.tenants as Record<string, MemoryTenantData>)[tenantId] = data;
+    this.paymentsData.delete(tenantId);
+    for (let i = this.drafts.length - 1; i >= 0; i -= 1) if (this.drafts[i]?.tenantId === tenantId) this.drafts.splice(i, 1);
   }
 
   async withTenant<T>(tenantId: string, work: (repo: ShopRepository) => Promise<T>): Promise<T> {
