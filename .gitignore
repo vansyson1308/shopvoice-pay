@@ -28,3 +28,5 @@ dist/
 # local/generated e2e env
 infra/compose/v2/e2e.env
 .claude/
+docs/paypal/spike-results.mock.json
+docs/paypal/toolkit-spike-results.mock.json

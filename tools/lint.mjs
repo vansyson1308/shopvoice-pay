@@ -74,6 +74,10 @@ for (const file of files) {
   if (content.includes(' as any') || content.includes(': any') || content.includes('<any>')) {
     issues.push(`${file}: avoid explicit any in V2 scaffold code`);
   }
+  // Sandbox only: no source file may name a live PayPal API host.
+  if (/(?<!sandbox\.)\bapi(-m)?\.paypal\.com/.test(content)) {
+    issues.push(`${file}: live PayPal API host referenced (ShopVoice Pay is sandbox-only)`);
+  }
   if (content.includes(verificationMarker)) {
     issues.push(`${file}: forbidden marker ${verificationMarker}`);
   }
