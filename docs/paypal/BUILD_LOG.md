@@ -2,6 +2,24 @@
 
 Running log for ShopVoice Pay (PayPal AI Hackathon). Newest entry first. Times are Vietnam time (UTC+7).
 
+## 2026-10-04 (Sun, late): repo live, CI green, M1 started
+
+**Done**
+- The owner created `vansyson1308/shopvoice-pay`, since the GitHub connector cannot create repositories (403). `main` holds only the import commit, which now also carries NOTICE and a credit README, as the owner asked.
+  - The rest went up as PR vansyson1308/shopvoice-pay#1 (`m0/foundation`).
+- GitGuardian flagged the CI's per-run Postgres password env line as a "Generic Password". It was a false positive (a throwaway value made from `github.run_id`).
+  - Fixed by using `POSTGRES_HOST_AUTH_METHOD: trust` for the localhost-only service container, with no credential at all.
+  - The unmerged PR branch was rewritten so the line never existed. The incident may still show as "Triggered" in the GitGuardian dashboard and can be resolved there as a false positive.
+- M1 started: the spending policy engine, as PR vansyson1308/shopvoice-pay#2, stacked on #1.
+  - `evaluatePolicy` (block, step-up and autopay rules with speakable reasons) and `evaluateSubstitution`.
+  - 18 tests, 98.6% branch coverage, and a CI gate at 95%.
+
+**Verified**
+- GitHub Actions on #1: lint, typecheck, unit, Postgres, e2e; the sandbox job is skipped because no secret is set.
+- Locally on the M1 branch: 154 unit tests and 30 DB tests pass.
+
+**Still blocked on the owner**: sandbox REST app and accounts (SPIKE.md "Owner action").
+
 ## 2026-10-04 (Sun): M0 started
 
 **Done**

@@ -16,6 +16,7 @@
     "format:check": "node tools/format-check.mjs",
     "sql:guard": "node tools/sql-interpolation-guard.mjs",
     "test": "npm run build && node --test tests/unit/*.test.mjs",
+    "test:coverage:policy": "node --test --experimental-test-coverage --test-coverage-include='apps/mcp-server/dist/policy/*.js' --test-coverage-branches=95 --test-coverage-lines=95 tests/unit/policy-engine.test.mjs",
     "test:db": "node --test --test-concurrency=1 tests/db/*.test.mjs",
     "test:sandbox": "npm run build && node --test --test-concurrency=1 tests/sandbox/*.test.mjs",
     "spike": "npm run build && node scripts/paypal/spike.mjs",
