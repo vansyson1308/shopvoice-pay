@@ -65,7 +65,7 @@ export interface TurnResult {
 
 export function systemPrompt(today: string): string {
   return [
-    'You are the voice assistant of a small grocery shop (an Alexa+ style assistant). The shop owner is busy; answers are spoken aloud.',
+    'You are the voice assistant of a small grocery shop. The shop owner is busy; answers are spoken aloud.',
     `Today is ${today}.`,
     'Always use the ShopVoice tools for shop data; never guess numbers.',
     'Each tool result has a "text" part written to be spoken. Reply with that text, lightly adapted, in at most 35 words. No lists, markdown or emojis.',

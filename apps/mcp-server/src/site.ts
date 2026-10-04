@@ -52,17 +52,17 @@ function layout(lang: Lang, page: PageName, title: string, body: string, cfg: Si
   const other = lang === 'vi' ? `<a href="/${page}">English</a>` : `<a href="/${page}?lang=vi">Tiếng Việt</a>`;
   const contact = cfg.supportEmail ? ` · <a href="mailto:${esc(cfg.supportEmail)}">${esc(cfg.supportEmail)}</a>` : '';
   return `<!doctype html><html lang="${lang}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>${esc(title)} · ShopVoice</title><meta name="description" content="ShopVoice: run a small grocery shop's stock, sales and reorders from Claude or by voice."><link rel="icon" href="/icon.svg">
-<style>${CSS}</style></head><body><div class="wrap"><header><a class="brand" href="/docs${lang === 'vi' ? '?lang=vi' : ''}">${LOGO_SVG}ShopVoice</a><nav>${nav}</nav><span class="lang">${other}</span></header>
-<main>${body}</main><footer>ShopVoice · GroceryClaw (MIT, <a href="https://github.com/vansyson1308/groceryclaw">source</a>)${contact}</footer></div></body></html>`;
+<title>${esc(title)} · ShopVoice Pay</title><meta name="description" content="ShopVoice Pay: a voice-first purchasing agent for independent grocers that pays suppliers through PayPal, only within the owner's rules."><link rel="icon" href="/icon.svg">
+<style>${CSS}</style></head><body><div class="wrap"><header><a class="brand" href="/docs${lang === 'vi' ? '?lang=vi' : ''}">${LOGO_SVG}ShopVoice Pay</a><nav>${nav}</nav><span class="lang">${other}</span></header>
+<main>${body}</main><footer>ShopVoice Pay · MIT · <a href="https://github.com/vansyson1308/shopvoice-pay">source</a>${contact}</footer></div></body></html>`;
 }
 
 export function createSite(cfg: SiteConfig): Site | null {
   const dir = publicDir();
   if (!existsSync(`${dir}pages/docs.en.html`)) return null;
   const fill = (text: string) => text
-    .replaceAll('{{BASE_URL}}', esc(cfg.baseUrl || 'https://<your ShopVoice host>'))
-    .replaceAll('{{MCP_URL}}', esc(`${cfg.baseUrl || 'https://<your ShopVoice host>'}${cfg.mcpPath}`))
+    .replaceAll('{{BASE_URL}}', esc(cfg.baseUrl || 'https://<your ShopVoice Pay host>'))
+    .replaceAll('{{MCP_URL}}', esc(`${cfg.baseUrl || 'https://<your ShopVoice Pay host>'}${cfg.mcpPath}`))
     .replaceAll('{{SUPPORT_EMAIL}}', esc(cfg.supportEmail || 'the address on the support page'));
   const rendered = new Map<string, string>();
   for (const page of PAGES) {

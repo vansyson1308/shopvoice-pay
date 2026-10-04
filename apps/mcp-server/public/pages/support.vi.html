@@ -1,24 +1,28 @@
 <!-- title: Hỗ trợ -->
 <h1>Hỗ trợ</h1>
-<p class="lead">Gửi email tới <b>{{SUPPORT_EMAIL}}</b>. Chúng tôi trả lời trong vòng 2 ngày làm việc (giờ Việt Nam, UTC+7), thường nhanh hơn.</p>
+<p class="lead">Gửi email tới <b>{{SUPPORT_EMAIL}}</b>. Chúng tôi trả lời trong vòng 2 ngày làm việc, thường là sớm hơn.</p>
 
-<h2>Nên gửi kèm</h2>
+<h2>Cần gửi kèm những gì</h2>
 <ul>
-<li>Email tài khoản ShopVoice (đừng bao giờ gửi mật khẩu).</li>
-<li>Bạn dùng ở đâu (claude.ai, ứng dụng Claude trên máy tính/điện thoại, Cowork, Claude Code hay Alexa) và khoảng thời gian.</li>
-<li>Bạn đã hỏi gì và thông báo lỗi chính xác; với lỗi kết nối trong Claude, gửi kèm mã tham chiếu bắt đầu bằng <code>ofid_</code> nếu có.</li>
+<li>Bạn dùng ShopVoice Pay ở đâu: trên console, hay trong một ứng dụng như Claude (web, máy tính, điện thoại hoặc Claude Code).</li>
+<li>Khoảng thời điểm sự việc xảy ra: ngày, giờ và múi giờ.</li>
+<li>Bạn đã hỏi gì, và chính xác thông báo bạn thấy. Với lỗi kết nối trong Claude, hãy gửi kèm mã tham chiếu bắt đầu bằng <code>ofid_</code> nếu có.</li>
+<li>Nếu bạn có tài khoản, địa chỉ email của tài khoản. Không bao giờ gửi mật khẩu, thông tin đăng nhập PayPal hay token.</li>
 </ul>
 
 <h2>Cách xử lý nhanh</h2>
 <ul>
-<li><b>Claude báo không kết nối được / ủy quyền thất bại:</b> xóa ShopVoice trong <b>Customize → Connectors</b>, thêm lại và đăng nhập trong cửa sổ bật lên (cho phép popup với claude.ai).</li>
-<li><b>Báo kết nối chỉ được xem khi đặt hàng:</b> bạn đã bỏ chọn quyền tạo/xác nhận đơn. Kết nối lại và giữ tùy chọn này.</li>
-<li><b>Sai cửa hàng:</b> xem cửa hàng đang dùng ở <a href="/account">trang tài khoản</a>; liên kết cửa hàng thật bằng mã mời.</li>
-<li><b>Bị khóa do nhập sai mật khẩu:</b> đợi 15 phút rồi thử lại.</li>
+<li><b>"The demo is busy" hoặc "Too many new demo shops":</b> đợi vài phút rồi thử lại. Mỗi khách có một cửa hàng mẫu riêng, và việc tạo cửa hàng mới bị giới hạn tần suất.</li>
+<li><b>Làm lại từ đầu:</b> dùng nút <b>Reset demo</b> ở đầu console. Nút này xóa các khoản thanh toán và lịch sử trong bản demo của bạn.</li>
+<li><b>Một đơn hàng "cần bạn đồng ý":</b> đơn đó vượt quy tắc chi tiêu của bạn. Hãy duyệt hoặc từ chối trong thẻ <b>Approvals</b> của console, bằng cách nói "yes" hoặc "no", hoặc trên trang PayPal. Không có gì bị giữ hay bị thu tiền cho tới khi bạn duyệt.</li>
+<li><b>Trang PayPal yêu cầu đăng nhập:</b> đó là sandbox của PayPal. Hãy dùng tài khoản người mua sandbox ghi trong README của dự án, không bao giờ dùng tài khoản PayPal thật.</li>
+<li><b>"Couldn't connect" trong Claude:</b> gỡ ShopVoice Pay trong <b>Customize → Connectors</b>, thêm lại và đăng nhập trong cửa sổ bật lên. Kiểm tra trình duyệt có cho phép cửa sổ bật lên từ claude.ai không.</li>
+<li><b>Thanh toán báo kết nối chỉ đọc:</b> bạn đã bỏ chọn quyền ghi khi kết nối. Hãy kết nối lại và giữ ô đó được chọn.</li>
+<li><b>Bị khóa sau khi nhập sai mật khẩu:</b> đợi 15 phút rồi thử lại.</li>
 </ul>
 
-<h2>Báo lỗi bảo mật</h2>
-<p>Gửi riêng tới {{SUPPORT_EMAIL}} với tiêu đề có chữ "SECURITY". Chúng tôi phản hồi trong 2 ngày làm việc.</p>
+<h2>Báo cáo bảo mật</h2>
+<p>Vui lòng báo cáo lỗ hổng bảo mật một cách riêng tư tới {{SUPPORT_EMAIL}}, với chữ "SECURITY" trong tiêu đề. Chúng tôi xác nhận đã nhận báo cáo trong vòng 2 ngày làm việc.</p>
 
 <h2>Thêm</h2>
-<p><a href="/docs?lang=vi">Tài liệu</a> · <a href="/privacy?lang=vi">Quyền riêng tư</a> · <a href="/terms?lang=vi">Điều khoản</a></p>
+<p><a href="/docs?lang=vi">Tài liệu</a> · <a href="/privacy?lang=vi">Chính sách quyền riêng tư</a> · <a href="/terms?lang=vi">Điều khoản</a> · <a href="https://github.com/vansyson1308/shopvoice-pay/issues">GitHub issues</a> (không bao giờ đăng dữ liệu cá nhân ở đó)</p>

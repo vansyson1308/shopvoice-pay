@@ -6,15 +6,15 @@ export type { Locale };
 
 const T = {
   en: {
-    signinTitle: 'Sign in to ShopVoice',
+    signinTitle: 'Sign in to ShopVoice Pay',
     signinLead: 'Sign in or create a free account to connect your shop.',
-    connecting: 'is asking to connect to your ShopVoice account.',
+    connecting: 'is asking to connect to your ShopVoice Pay account.',
     email: 'Email',
     password: 'Password',
     passwordConfirm: 'Repeat password',
     signin: 'Sign in',
-    signupTitle: 'New to ShopVoice?',
-    signupLead: 'Create a free account. You get a demo shop with sample data right away; link your real GroceryClaw shop later with an invite code.',
+    signupTitle: 'New to ShopVoice Pay?',
+    signupLead: 'Create a free account. You get a demo shop with sample data right away. Payments in it run in PayPal\'s sandbox or a labelled simulation; no real money moves.',
     passwordRule: 'At least 10 characters.',
     language: 'Language',
     acceptTerms: 'I accept the <a href="/terms">Terms</a> and the <a href="/privacy">Privacy Policy</a>.',
@@ -36,13 +36,13 @@ const T = {
     switchAccount: 'Use another account',
     revokeNote: 'You can revoke access at any time on your',
     accountPage: 'account page',
-    accountTitle: 'Your ShopVoice account',
+    accountTitle: 'Your ShopVoice Pay account',
     connectedApps: 'Connected apps',
     noApps: 'No apps are connected.',
     lastUsed: 'Last used',
     revoke: 'Revoke',
     linkTitle: 'Link your real shop',
-    linkLead: 'Have a GroceryClaw invite code from your shop owner? Enter it to switch from the demo shop to your real shop. Connected apps will need to sign in again.',
+    linkLead: 'Have an invite code from your shop owner? Enter it to switch from the demo shop to your real shop. Connected apps will need to sign in again.',
     inviteCode: 'Invite code',
     link: 'Link shop',
     signout: 'Sign out',
@@ -58,7 +58,7 @@ const T = {
     linked: 'Your account now uses your real shop.',
     revoked: 'Access revoked.',
     deleteTitle: 'Delete account',
-    deleteLead: 'Deletes your ShopVoice account, disconnects every app and erases your demo shop. A linked real shop keeps its data in GroceryClaw. This cannot be undone.',
+    deleteLead: 'Deletes your ShopVoice Pay account, disconnects every app and erases your demo shop. A linked real shop keeps its own data. This cannot be undone.',
     deleteConfirm: 'Type your email to confirm',
     deleteButton: 'Delete my account',
     deleted: 'Your account was deleted.',
@@ -71,15 +71,15 @@ const T = {
     support: 'Support'
   },
   vi: {
-    signinTitle: 'Đăng nhập ShopVoice',
+    signinTitle: 'Đăng nhập ShopVoice Pay',
     signinLead: 'Đăng nhập hoặc tạo tài khoản miễn phí để kết nối cửa hàng.',
-    connecting: 'muốn kết nối với tài khoản ShopVoice của bạn.',
+    connecting: 'muốn kết nối với tài khoản ShopVoice Pay của bạn.',
     email: 'Email',
     password: 'Mật khẩu',
     passwordConfirm: 'Nhập lại mật khẩu',
     signin: 'Đăng nhập',
-    signupTitle: 'Lần đầu dùng ShopVoice?',
-    signupLead: 'Tạo tài khoản miễn phí. Bạn có ngay một cửa hàng mẫu với dữ liệu mẫu; sau đó có thể liên kết cửa hàng GroceryClaw thật bằng mã mời.',
+    signupTitle: 'Lần đầu dùng ShopVoice Pay?',
+    signupLead: 'Tạo tài khoản miễn phí. Bạn có ngay một cửa hàng mẫu với dữ liệu mẫu. Thanh toán trong đó chạy trên sandbox của PayPal hoặc một bản mô phỏng có ghi rõ; không có tiền thật nào được chuyển.',
     passwordRule: 'Tối thiểu 10 ký tự.',
     language: 'Ngôn ngữ',
     acceptTerms: 'Tôi đồng ý với <a href="/terms">Điều khoản</a> và <a href="/privacy">Chính sách quyền riêng tư</a>.',
@@ -101,13 +101,13 @@ const T = {
     switchAccount: 'Dùng tài khoản khác',
     revokeNote: 'Bạn có thể thu hồi quyền bất cứ lúc nào tại',
     accountPage: 'trang tài khoản',
-    accountTitle: 'Tài khoản ShopVoice',
+    accountTitle: 'Tài khoản ShopVoice Pay',
     connectedApps: 'Ứng dụng đã kết nối',
     noApps: 'Chưa có ứng dụng nào kết nối.',
     lastUsed: 'Dùng lần cuối',
     revoke: 'Thu hồi',
     linkTitle: 'Liên kết cửa hàng thật',
-    linkLead: 'Bạn có mã mời GroceryClaw từ chủ cửa hàng? Nhập mã để chuyển từ cửa hàng mẫu sang cửa hàng thật. Các ứng dụng đã kết nối sẽ phải đăng nhập lại.',
+    linkLead: 'Bạn có mã mời từ chủ cửa hàng? Nhập mã để chuyển từ cửa hàng mẫu sang cửa hàng thật. Các ứng dụng đã kết nối sẽ phải đăng nhập lại.',
     inviteCode: 'Mã mời',
     link: 'Liên kết',
     signout: 'Đăng xuất',
@@ -123,7 +123,7 @@ const T = {
     linked: 'Tài khoản đã chuyển sang cửa hàng thật.',
     revoked: 'Đã thu hồi quyền.',
     deleteTitle: 'Xóa tài khoản',
-    deleteLead: 'Xóa tài khoản ShopVoice, ngắt kết nối mọi ứng dụng và xóa cửa hàng mẫu. Cửa hàng thật đã liên kết vẫn giữ dữ liệu trong GroceryClaw. Không thể hoàn tác.',
+    deleteLead: 'Xóa tài khoản ShopVoice Pay, ngắt kết nối mọi ứng dụng và xóa cửa hàng mẫu. Cửa hàng thật đã liên kết vẫn giữ dữ liệu của mình. Không thể hoàn tác.',
     deleteConfirm: 'Nhập email để xác nhận',
     deleteButton: 'Xóa tài khoản của tôi',
     deleted: 'Tài khoản đã được xóa.',
@@ -183,7 +183,7 @@ function footer(s: Strings, supportEmail: string): string {
 
 export function layout(locale: Locale, title: string, body: string, supportEmail: string): string {
   const s = strings(locale);
-  return `<!doctype html><html lang="${locale}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>${esc(title)}</title><link rel="icon" href="/icon.svg"><style>${CSS}</style></head><body><main><header>${LOGO_SVG}<b>ShopVoice</b></header>${body}${footer(s, supportEmail)}</main></body></html>`;
+  return `<!doctype html><html lang="${locale}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>${esc(title)}</title><link rel="icon" href="/icon.svg"><style>${CSS}</style></head><body><main><header>${LOGO_SVG}<b>ShopVoice Pay</b></header>${body}${footer(s, supportEmail)}</main></body></html>`;
 }
 
 export type HiddenFields = Readonly<Record<string, string>>;
