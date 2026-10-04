@@ -8,3 +8,4 @@ export * from './payouts.js';
 export * from './webhooks.js';
 export * from './mock-paypal.js';
 export * from './config.js';
+export * from './service.js';
