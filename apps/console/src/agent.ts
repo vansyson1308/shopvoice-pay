@@ -36,6 +36,8 @@ export interface Conversation {
   readonly id: string;
   messages: ChatMessage[];
   pending: PendingConfirmation | null;
+  /** A refund confirmation token, held by the host like the reorder token. */
+  pendingRefund: string | null;
   awaitingApproval: AwaitingApproval | null;
   lastSeenMs: number;
 }
@@ -75,14 +77,26 @@ export function systemPrompt(today: string): string {
 }
 
 export function newConversation(id: string, now: number): Conversation {
-  return { id, messages: [], pending: null, awaitingApproval: null, lastSeenMs: now };
+  return { id, messages: [], pending: null, pendingRefund: null, awaitingApproval: null, lastSeenMs: now };
 }
+
+/**
+ * Tools that change money or rules run only when the owner's own words in
+ * this turn ask for it; a model acting on its own (or on injected text) is
+ * refused by the host. confirm_reorder and refund confirmations need a yes.
+ */
+export const OWNER_INTENT: Readonly<Record<string, { readonly pattern: RegExp; readonly refusal: string }>> = {
+  record_delivery: { pattern: /\b(arriv|came|come|deliver|got|showed|received|nothing|short|missing|only)\w*/i, refusal: 'The owner did not report a delivery in this turn. Ask what arrived.' },
+  request_refund: { pattern: /\b(refund|money back|credit|return|stale|spoil|damaged|wrong)\w*/i, refusal: 'The owner did not ask for a refund in this turn.' },
+  set_spending_policy: { pattern: /\b(limit|budget|cap|rule|polic|approve|approved|supplier|allow|threshold|auto-?pay|spend)\w*/i, refusal: 'The owner did not ask to change the spending rules in this turn.' }
+};
 
 /** A plain spoken answer to the host's approval question; anything else is a new request. */
 export function approvalAnswer(text: string): 'yes' | 'no' | null {
   const t = text.trim();
   if (t.split(/\s+/).length > 8) return null;
-  if (isAffirmative(t) || /\bapprove( it)?\b/i.test(t) && !NEGATIVE.test(t)) return 'yes';
+  if (/\?\s*$/.test(t)) return null;
+  if (isAffirmative(t) || (/^\s*approve( it)?\b/i.test(t) && !NEGATIVE.test(t))) return 'yes';
   if (NEGATIVE.test(t) && !AFFIRMATIVE.test(t)) return 'no';
   return null;
 }
@@ -178,23 +192,32 @@ export async function runTurn(opts: {
         if (!affirmed) blocked = 'The owner has not said yes in this turn. Ask them to confirm first.';
         else if (!conversation.pending) blocked = 'There is no pending reorder draft to confirm.';
         else args.confirmation_token = conversation.pending.token;
+      } else if (name === 'request_refund' && args.confirmation_token !== undefined) {
+        if (!affirmed) blocked = 'The owner has not said yes in this turn. Ask them to confirm the refund first.';
+        else if (!conversation.pendingRefund) blocked = 'There is no pending refund to confirm.';
+        else args.confirmation_token = conversation.pendingRefund;
+      } else if (OWNER_INTENT[name] && !OWNER_INTENT[name]?.pattern.test(userText)) {
+        blocked = OWNER_INTENT[name]?.refusal;
       }
 
       if (blocked) {
-        traces.push({ name, args: { ...args, confirmation_token: '[held by host]' }, latencyMs: 0, isError: true, spoken: blocked, structured: null, blockedByHost: blocked });
+        traces.push({ name, args: 'confirmation_token' in args ? { ...args, confirmation_token: '[held by host]' } : args, latencyMs: 0, isError: true, spoken: blocked, structured: null, blockedByHost: blocked });
         results.push({ toolResult: { toolUseId, status: 'error', content: [{ text: blocked }] } } satisfies ToolResultBlock);
         continue;
       }
 
       const result = await toolbox.callTool(name, args);
       const structured = result.structured;
-      const shownArgs = name === 'confirm_reorder' ? { confirmation_token: '[held by host]' } : args;
+      const shownArgs = name === 'confirm_reorder' ? { confirmation_token: '[held by host]' } : 'confirmation_token' in args ? { ...args, confirmation_token: '[held by host]' } : args;
       traces.push({ name, args: shownArgs, latencyMs: Math.round(result.latencyMs), isError: result.isError, spoken: result.spoken, structured: redactStructured(structured) });
 
       if (name === 'create_reorder_draft' && structured?.status === 'draft_created' && typeof structured.confirmation_token === 'string') {
         conversation.pending = { token: structured.confirmation_token, expiresAt: String(structured.expires_at ?? ''), summary: redactStructured(structured) ?? {} };
         conversation.awaitingApproval = null;
         confirmationCard = redactStructured(structured);
+      }
+      if (name === 'request_refund' && structured) {
+        conversation.pendingRefund = structured.status === 'needs_confirmation' && typeof structured.confirmation_token === 'string' ? structured.confirmation_token : null;
       }
       if (name === 'confirm_reorder' && structured) {
         orderResult = structured;

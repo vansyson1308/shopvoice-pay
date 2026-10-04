@@ -117,7 +117,7 @@ test('agent with Claude: thinking goes back unchanged, the reorder token never r
 test('approval answers are matched by code: short yes/no only', () => {
   for (const t of ['yes', 'Yes, approve it', 'approve it', 'sure', 'go ahead']) assert.equal(approvalAnswer(t), 'yes', t);
   for (const t of ['no', "no, don't", 'cancel it', 'not now, wait']) assert.equal(approvalAnswer(t), 'no', t);
-  for (const t of ['what does it cost?', 'yes but first tell me how much milk we have left in the back room today']) assert.equal(approvalAnswer(t), null, t);
+  for (const t of ['what does it cost?', 'yes but first tell me how much milk we have left in the back room today', 'Why did the egg order need my OK?', 'approve it?']) assert.equal(approvalAnswer(t), null, t);
 });
 
 async function consoleStack() {

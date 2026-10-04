@@ -27,7 +27,9 @@
     "mcp:token": "node scripts/create_mcp_token.mjs",
     "start:mcp": "node apps/mcp-server/dist/server.js",
     "start:console": "node apps/console/dist/server.js",
-    "demo:e2e": "npm run build && node scripts/demo/e2e_voice_flow.mjs"
+    "demo:e2e": "npm run build && node scripts/demo/e2e_voice_flow.mjs",
+    "evals": "npm run build && node evals/run_evals.mjs",
+    "test:e2e:ui": "npm run build && node --test --test-concurrency=1 tests/e2e/*.e2e.mjs"
   },
   "engines": {
     "node": ">=20"

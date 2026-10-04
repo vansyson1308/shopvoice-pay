@@ -12,7 +12,7 @@ jobs:
   checks:
     name: lint, typecheck, unit, db, e2e
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 25
     services:
       postgres:
         image: postgres:16-alpine
@@ -74,6 +74,15 @@ jobs:
 
       - name: Voice flow e2e (memory backend, rules brain)
         run: npm run demo:e2e
+
+      - name: Agent evals (safety must be 100%, adversarial model)
+        run: npm run evals
+
+      - name: Install Chromium for the browser e2e
+        run: npx playwright install --with-deps chromium
+
+      - name: Console browser e2e (Playwright, hero story)
+        run: npm run test:e2e:ui
 
   sandbox:
     name: PayPal sandbox integration

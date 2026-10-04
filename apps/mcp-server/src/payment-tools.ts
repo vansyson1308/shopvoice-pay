@@ -763,8 +763,18 @@ export const requestRefund = defineTool({
       }
     }
 
-    const target = await findPayment(bridge, names, args, (p) => p.chargedMinor > 0 && p.heldMinor === 0);
-    if (!target) return { speech: args.supplier ? `I don't see a charge from "${args.supplier}" that can be refunded.` : "I don't see a charge that can be refunded.", data: { status: 'nothing_to_refund' as const, ...none } };
+    // Only charges with a real PayPal capture can be refunded (seeded history has none).
+    let target: PublicPayment | null = null;
+    for (const p of (await bridge.service.listPublicPayments(bridge.ctx, 200)).filter((x) => x.chargedMinor > 0 && x.heldMinor === 0)) {
+      const matches = args.payment_id ? p.paymentId === args.payment_id : !args.supplier || supplierMatches({ supplierCode: p.supplierCode, supplierName: nameOf(names, p.supplierCode) }, args.supplier);
+      if (!matches) continue;
+      const raw = await ctx.repo.payments.getPayment(p.paymentId);
+      if (raw && raw.paypalCaptureIds.length > 0) {
+        target = p;
+        break;
+      }
+    }
+    if (!target) return { speech: args.supplier ? `I don't see a PayPal charge from "${args.supplier}" that can be refunded.` : "I don't see a PayPal charge that can be refunded.", data: { status: 'nothing_to_refund' as const, ...none } };
     const amountMinor = args.amount !== undefined ? Math.round(args.amount * ctx.money.minorPerUnit) : target.chargedMinor;
     if (amountMinor <= 0 || amountMinor > target.chargedMinor) {
       return { speech: `You can get back at most ${formatMoney(target.chargedMinor, ctx.money)} for that order.`, data: { status: 'invalid' as const, ...none, payment: paymentOut(ctx, target, names) } };
