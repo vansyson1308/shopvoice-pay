@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="ShopVoice">
+  <rect width="512" height="512" rx="112" fill="#0f766e"/>
+  <path d="M176 214l40-86M336 214l-40-86" stroke="#ffffff" stroke-width="30" stroke-linecap="round"/>
+  <path d="M104 206h304a14 14 0 0 1 13.8 16.3l-26 152A40 40 0 0 1 356.4 408H155.6a40 40 0 0 1-39.4-33.7l-26-152A14 14 0 0 1 104 206z" fill="#ffffff"/>
+  <path d="M196 268v76M236 250v112M276 276v60M316 262v88" stroke="#0f766e" stroke-width="24" stroke-linecap="round"/>
+</svg>

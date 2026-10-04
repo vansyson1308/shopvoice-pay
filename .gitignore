@@ -1,0 +1,30 @@
+# Environment and secrets
+.env
+.env.*
+!.env.example
+!.env.prod.example
+infra/compose/v2/.env
+infra/compose/v2/.env.local
+**/*.env.local
+
+# Node / logs
+node_modules/
+*.log
+npm-debug.log*
+
+# OS/editor
+.DS_Store
+.vscode/
+.idea/
+
+# Local runtime artifacts
+*.pid
+*.sqlite
+
+# Build artifacts
+dist/
+*.tsbuildinfo
+
+# local/generated e2e env
+infra/compose/v2/e2e.env
+.claude/

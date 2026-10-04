@@ -1,0 +1,19 @@
+ShopVoice Pay
+Licensed under the MIT License (see LICENSE).
+
+This repository starts from an import of parts of GroceryClaw
+(https://github.com/vansyson1308/groceryclaw, commit 0fb3af4, MIT License,
+Copyright (c) 2026 vansyson1308 and GroceryClaw contributors):
+
+- apps/mcp-server   (ShopVoice MCP server, OAuth 2.1, public pages)
+- apps/alexa-sim    (push-to-talk console)
+- packages/common
+- db/v2/migrations 001-018 and db/v2/seed
+- supporting scripts, tests and tools
+
+The import is the first commit of this repository. Everything after it is
+built during the PayPal AI Hackathon.
+
+Third-party packages keep their own licenses.
+"PayPal" is a trademark of PayPal, Inc. This project is not affiliated
+with or endorsed by PayPal.

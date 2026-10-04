@@ -1,0 +1,55 @@
+<!-- title: Chính sách quyền riêng tư -->
+<h1>Chính sách quyền riêng tư</h1>
+<p class="muted">Hiệu lực từ 27/09/2026. Áp dụng cho dịch vụ ShopVoice tại {{BASE_URL}} (connector MCP, trang đăng nhập và tài khoản) và plugin ShopVoice (plugin chỉ kết nối tới dịch vụ này). Bản tiếng Anh là bản chính.</p>
+
+<h2>Chúng tôi là ai</h2>
+<p>ShopVoice thuộc dự án mã nguồn mở GroceryClaw (giấy phép MIT, <a href="https://github.com/vansyson1308/groceryclaw">github.com/vansyson1308/groceryclaw</a>), do một nhà phát triển cá nhân vận hành. Liên hệ: {{SUPPORT_EMAIL}}.</p>
+
+<h2>Dữ liệu thu thập</h2>
+<ul>
+<li><b>Tài khoản:</b> email, bản băm scrypt của mật khẩu (không lưu mật khẩu), ngôn ngữ, thời điểm đăng nhập và đăng nhập sai.</li>
+<li><b>Dữ liệu cửa hàng:</b> sản phẩm, tồn kho, doanh số theo ngày, nhà cung cấp, hóa đơn, đơn đặt hàng nháp. Với tài khoản mới đây là dữ liệu mẫu; với cửa hàng thật là dữ liệu bạn nhập vào GroceryClaw hoặc đồng bộ từ máy bán hàng nếu bạn bật.</li>
+<li><b>Nhật ký gọi công cụ:</b> tên công cụ, tham số (đã xóa phần bí mật), tóm tắt kết quả, thành công hay lỗi, thời gian xử lý.</li>
+<li><b>Kết nối:</b> ứng dụng đã kết nối (ví dụ Claude), quyền đã cấp, mã truy cập dạng băm cùng thời điểm tạo/dùng/hết hạn.</li>
+<li><b>Nhật ký kỹ thuật:</b> địa chỉ IP, thời gian, đường dẫn và mã trạng thái, dùng cho giới hạn tần suất, bảo mật và gỡ lỗi.</li>
+</ul>
+<p><b>Không thu thập:</b> cuộc trò chuyện với Claude, bộ nhớ, lịch sử chat, tệp của bạn; thông tin thanh toán; dữ liệu sức khỏe. ShopVoice chỉ nhận những gì ứng dụng gửi trong một lần gọi công cụ.</p>
+
+<h2>Mục đích sử dụng</h2>
+<ul>
+<li>Trả lời yêu cầu về cửa hàng và ghi lại đơn hàng bạn xác nhận.</li>
+<li>Tách biệt dữ liệu từng cửa hàng (Postgres row-level security).</li>
+<li>Bảo mật dịch vụ và khắc phục sự cố.</li>
+</ul>
+<p>Chúng tôi không bán dữ liệu, không dùng cho quảng cáo và không dùng để huấn luyện mô hình AI.</p>
+
+<h2>Lưu trữ và bảo vệ</h2>
+<p>Dịch vụ chạy trên Amazon Web Services tại Hoa Kỳ (vùng us-east-1). Dữ liệu truyền qua HTTPS và được mã hóa khi lưu trên đĩa. Mã truy cập, mã ủy quyền và khóa bí mật chỉ lưu dạng băm SHA-256; mật khẩu dạng băm scrypt.</p>
+
+<h2>Thời gian lưu</h2>
+<ul>
+<li>Nhật ký gọi công cụ: 90 ngày rồi tự động xóa.</li>
+<li>Nhật ký kỹ thuật: 14 ngày.</li>
+<li>Mã hết hạn/bị thu hồi: xóa sau khoảng 7 ngày; đăng ký ứng dụng không dùng: xóa sau 30 ngày.</li>
+<li>Tài khoản và dữ liệu cửa hàng: cho tới khi bạn xóa tài khoản. Dữ liệu cửa hàng mẫu được tạo lại hằng ngày.</li>
+</ul>
+
+<h2>Quyền của bạn</h2>
+<ul>
+<li><b>Ngắt kết nối ứng dụng</b> bất cứ lúc nào ở <a href="/account">trang tài khoản</a> hoặc trong cài đặt connector của Claude.</li>
+<li><b>Xóa tài khoản</b> ngay tại <a href="/account">trang tài khoản</a>, hoặc gửi email tới {{SUPPORT_EMAIL}} (xử lý trong 30 ngày).</li>
+<li><b>Xem hoặc sửa dữ liệu:</b> gửi email, chúng tôi trả lời trong 30 ngày.</li>
+</ul>
+
+<h2>Bên xử lý khác</h2>
+<ul>
+<li><b>Amazon Web Services</b>: lưu trữ và vận hành.</li>
+<li><b>Ứng dụng bạn kết nối</b> (ví dụ Claude của Anthropic, Amazon Alexa): nhận kết quả công cụ mà nó yêu cầu, xử lý theo điều khoản của họ.</li>
+<li><b>KiotViet</b>: chỉ khi cửa hàng bật đồng bộ (tùy chọn).</li>
+</ul>
+
+<h2>Trẻ em</h2>
+<p>ShopVoice là công cụ kinh doanh, không dành cho người dưới 18 tuổi.</p>
+
+<h2>Liên hệ</h2>
+<p>{{SUPPORT_EMAIL}} · <a href="/support?lang=vi">Trang hỗ trợ</a></p>

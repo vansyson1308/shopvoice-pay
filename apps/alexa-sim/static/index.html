@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ShopVoice Simulator</title>
+  <meta name="description" content="Voice assistant simulator for the ShopVoice MCP server: push-to-talk, Bedrock tool-use agent, Polly speech.">
+  <link rel="stylesheet" href="/static/styles.css">
+  <link rel="icon" href="/static/icon.svg" type="image/svg+xml">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <img src="/static/icon.svg" alt="" width="28" height="28">
+      <div>
+        <h1>ShopVoice</h1>
+        <p class="sub">Voice assistant simulator for an MCP-powered shop · <span id="shop-name">Corner Mart Demo</span></p>
+      </div>
+    </div>
+    <div class="chips" aria-label="Runtime status">
+      <span class="chip" id="chip-mcp" title="MCP Streamable HTTP">MCP …</span>
+      <span class="chip" id="chip-brain" title="Agent model">Brain …</span>
+      <span class="chip" id="chip-voice" title="Text to speech">Voice …</span>
+    </div>
+  </header>
+
+  <main class="layout">
+    <section class="device" aria-label="Smart display">
+      <div class="screen" id="screen" data-state="idle">
+        <div class="lightbar" aria-hidden="true"></div>
+        <p class="state-label" id="state-label">Hold the button or press Space, then speak</p>
+        <p class="heard" id="heard" aria-live="polite"></p>
+        <p class="reply" id="reply" aria-live="polite">Hi! Ask me what's running low, how sales are going, or to reorder something.</p>
+
+        <div class="card confirm" id="confirm-card" hidden>
+          <div class="card-head">
+            <span class="badge">Reorder draft</span>
+            <span class="timer" id="confirm-timer">5:00</span>
+          </div>
+          <div id="confirm-body"></div>
+          <div class="card-actions">
+            <button class="btn ghost" id="btn-cancel" type="button">No, cancel</button>
+            <button class="btn primary" id="btn-confirm" type="button">Yes, confirm</button>
+          </div>
+        </div>
+
+        <div class="card done" id="done-card" hidden>
+          <div class="card-head"><span class="badge ok">Order confirmed</span></div>
+          <div id="done-body"></div>
+        </div>
+      </div>
+
+      <div class="controls">
+        <button class="mic" id="mic" type="button" aria-label="Push to talk">
+          <svg viewBox="0 0 24 24" width="30" height="30" aria-hidden="true"><path fill="currentColor" d="M12 15a3 3 0 0 0 3-3V6a3 3 0 1 0-6 0v6a3 3 0 0 0 3 3Zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.93V21h2v-2.07A7 7 0 0 0 19 12h-2Z"/></svg>
+        </button>
+        <form id="text-form" class="text-form" autocomplete="off">
+          <input id="text-input" type="text" placeholder="…or type what you'd say" aria-label="Utterance">
+          <button class="btn" type="submit">Say</button>
+        </form>
+      </div>
+
+      <div class="suggestions" aria-label="Try saying">
+        <button type="button" class="suggest">What's running low?</button>
+        <button type="button" class="suggest">How were sales today compared to last Friday?</button>
+        <button type="button" class="suggest">Reorder milk and eggs</button>
+        <button type="button" class="suggest">Yes, confirm</button>
+        <button type="button" class="suggest">Did the Sunrise Beverages invoice arrive?</button>
+      </div>
+    </section>
+
+    <aside class="panel" aria-label="Tool calls">
+      <div class="panel-head">
+        <h2>MCP tool calls</h2>
+        <button class="btn ghost small" id="btn-reset" type="button">New conversation</button>
+      </div>
+      <p class="panel-sub">Every call goes over Streamable HTTP to the ShopVoice MCP server, scoped to this shop's tenant.</p>
+      <ol class="calls" id="calls"></ol>
+      <p class="empty" id="calls-empty">No tool calls yet.</p>
+    </aside>
+  </main>
+
+  <footer class="foot">Simulated voice assistant for demonstration. Speech in: browser speech recognition. Speech out: Amazon Polly (or browser voice). Agent: Amazon Bedrock Converse tool use (or offline rules).</footer>
+
+  <dialog id="access-dialog">
+    <form method="dialog" id="access-form">
+      <label for="access-code">Access code</label>
+      <input id="access-code" type="password" autocomplete="off">
+      <button class="btn primary" type="submit">Continue</button>
+    </form>
+  </dialog>
+
+  <script src="/static/app.js" type="module"></script>
+</body>
+</html>

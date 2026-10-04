@@ -1,0 +1,15 @@
+[allowlist]
+description = "Allow local placeholders and test fixtures"
+regexes = [
+  '''replace-me''',
+  '''stub-token''',
+  '''groceryclaw_dev''',
+  '''groceryclaw_v2''',
+  '''example''',
+  '''admin_mek_b64'''
+]
+paths = [
+  '''docs/saas_v2/perf_reports/''',
+  '''tests/fixtures/''',
+  '''infra/compose/v2/.env.example'''
+]

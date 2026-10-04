@@ -1,0 +1,14 @@
+{
+  "name": "@groceryclaw/common",
+  "version": "0.1.0-rc.1",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -b"
+  },
+  "dependencies": {
+    "exceljs": "^4.4.0"
+  }
+}

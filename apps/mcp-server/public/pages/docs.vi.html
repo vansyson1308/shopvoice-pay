@@ -1,0 +1,79 @@
+<!-- title: Tài liệu -->
+<h1>Tài liệu ShopVoice</h1>
+<p class="lead">ShopVoice giúp chủ tiệm tạp hóa hoặc cửa hàng tiện lợi quản lý cửa hàng ngay trong cuộc trò chuyện: xem hàng sắp hết, so sánh doanh số với tuần trước, kiểm tra hóa đơn nhà cung cấp đã về chưa, tạo và xác nhận đơn đặt hàng. Dùng được trong Claude (web, máy tính, điện thoại, Cowork, Claude Code) và bằng giọng nói với Alexa+.</p>
+
+<div class="note"><b>Địa chỉ máy chủ:</b> <code>{{MCP_URL}}</code><br>Giao thức: Streamable HTTP (MCP 2025-11-25). Đăng nhập: OAuth 2.1 bằng tài khoản ShopVoice miễn phí.</div>
+
+<h2 id="who">Dành cho ai</h2>
+<p>Các tiệm tạp hóa, cửa hàng tiện lợi độc lập dùng GroceryClaw để theo dõi tồn kho, doanh số và hóa đơn nhà cung cấp. ShopVoice là API chính chủ của GroceryClaw: mọi công cụ chỉ đọc/ghi dữ liệu cửa hàng của bạn trong GroceryClaw.</p>
+
+<h2 id="connect">Kết nối trong Claude</h2>
+<h3>Từ danh mục (directory)</h3>
+<p>Mở <b>Customize → Connectors</b>, tìm <b>ShopVoice</b>, chọn <b>Connect</b>. Cửa sổ đăng nhập ShopVoice sẽ mở ra.</p>
+<h3>Thêm connector tùy chỉnh</h3>
+<ol>
+<li>Trong Claude, mở <b>Customize → Connectors</b> → <b>Add custom connector</b>.</li>
+<li>Tên: <code>ShopVoice</code>. URL: <code>{{MCP_URL}}</code>. Để trống các ô OAuth nâng cao.</li>
+<li>Chọn <b>Connect</b>, đăng nhập hoặc tạo tài khoản ShopVoice, xem các quyền rồi chọn <b>Cho phép</b>.</li>
+<li>Trong cuộc trò chuyện, bật ShopVoice ở <b>+ → Connectors</b> và hỏi, ví dụ: "Cửa hàng tôi sắp hết hàng gì?"</li>
+</ol>
+<h3>Claude Code</h3>
+<pre><code>claude mcp add --transport http shopvoice {{MCP_URL}}</code></pre>
+<p>Sau đó gõ <code>/mcp</code> và chọn <b>Authenticate</b> để đăng nhập. Plugin ShopVoice (<a href="https://github.com/vansyson1308/shopvoice-plugin">shopvoice-plugin</a>) bổ sung các kỹ năng: báo cáo đầu ngày, lên kế hoạch nhập hàng, phân tích doanh số, hóa đơn nhà cung cấp; plugin dùng chính máy chủ này.</p>
+
+<h2 id="account">Tài khoản và cửa hàng</h2>
+<ul>
+<li><b>Tài khoản mới có sẵn một cửa hàng mẫu</b> ("Cửa hàng mẫu (dữ liệu mẫu)"): 60 sản phẩm, 5 nhà cung cấp, 90 ngày doanh số, 3 hóa đơn, để thử mọi công cụ ngay. Dữ liệu mẫu được làm mới mỗi ngày (đơn nháp mẫu cũng được xóa).</li>
+<li><b>Cửa hàng thật:</b> xin mã mời GroceryClaw từ chủ cửa hàng và nhập ở <a href="/account">trang tài khoản</a>. Tài khoản sẽ chuyển sang cửa hàng thật; các ứng dụng đã kết nối phải đăng nhập lại.</li>
+<li>Khi đăng ký, chọn Tiếng Việt (giá bằng đồng) hoặc English (giá bằng đô la Mỹ).</li>
+</ul>
+
+<h2 id="tools">Công cụ</h2>
+<div class="table"><table>
+<tr><th>Công cụ</th><th>Chức năng</th><th>Thử hỏi</th><th>Quyền</th></tr>
+<tr><td><code>get_daily_briefing</code></td><td>Doanh số hôm qua so với cùng thứ tuần trước, số mặt hàng sắp hết, hóa đơn chưa đồng bộ</td><td>"Báo cáo đầu ngày cho tôi"</td><td>đọc</td></tr>
+<tr><td><code>get_low_stock</code></td><td>Mặt hàng dưới mức tối thiểu, gấp nhất trước, kèm số ngày còn đủ bán</td><td>"Hàng gì sắp hết?"</td><td>đọc</td></tr>
+<tr><td><code>get_stock_level</code></td><td>Tồn kho một mặt hàng theo tên hoặc mã vạch</td><td>"Còn bao nhiêu sữa tươi?"</td><td>đọc</td></tr>
+<tr><td><code>get_sales_summary</code></td><td>Doanh thu và số lượng bán trong một khoảng thời gian, có so sánh</td><td>"Doanh số hôm qua so với thứ Sáu tuần trước?"</td><td>đọc</td></tr>
+<tr><td><code>get_top_movers</code></td><td>Mặt hàng bán chạy nhất / chậm nhất</td><td>"Top 5 mặt hàng doanh thu cao nhất tuần này"</td><td>đọc</td></tr>
+<tr><td><code>get_invoice_status</code></td><td>Hóa đơn nhà cung cấp gần đây: đã về, đã khớp sản phẩm, đã đồng bộ với máy bán hàng</td><td>"Hóa đơn Sunrise Beverages về chưa?"</td><td>đọc</td></tr>
+<tr><td><code>suggest_reorder</code></td><td>Gợi ý nhập gì, bao nhiêu theo từng nhà cung cấp ((số ngày giao hàng + 7) × bán trung bình mỗi ngày − tồn kho, làm tròn lên theo quy cách)</td><td>"Nên nhập gì từ nhà cung cấp sữa?"</td><td>đọc</td></tr>
+<tr><td><code>create_reorder_draft</code></td><td>Tạo đơn đặt hàng nháp (mỗi nhà cung cấp một đơn); chưa đặt gì</td><td>"Lập đơn nhập sữa và trứng"</td><td>ghi</td></tr>
+<tr><td><code>confirm_reorder</code></td><td>Xác nhận các đơn nháp trong sổ đặt hàng của cửa hàng</td><td>"Đồng ý, xác nhận"</td><td>ghi (Claude hỏi bạn trước)</td></tr>
+</table></div>
+
+<h2 id="safety">Đặt hàng an toàn thế nào</h2>
+<ol>
+<li><code>create_reorder_draft</code> chỉ ghi đơn nháp, trả về một mã xác nhận dùng một lần, hết hạn sau 5 phút, chỉ dùng được cho cửa hàng của bạn.</li>
+<li><code>confirm_reorder</code> được đánh dấu là thao tác thay đổi dữ liệu nên Claude sẽ hỏi bạn trước khi chạy. Xác nhận chỉ đổi trạng thái đơn trong sổ của cửa hàng; <b>ShopVoice không liên hệ nhà cung cấp và không bao giờ chuyển tiền</b>.</li>
+<li>Xác nhận lại lần nữa không có tác dụng; đơn nháp hết hạn không thể xác nhận.</li>
+</ol>
+
+<h2 id="permissions">Quyền truy cập</h2>
+<ul>
+<li><code>shop.read</code>: xem tồn kho, doanh số, nhà cung cấp, hóa đơn.</li>
+<li><code>shop.write</code>: tạo và xác nhận đơn nháp. Bạn có thể bỏ chọn ở màn hình cho phép để chỉ cho xem.</li>
+<li><code>offline_access</code>: giữ kết nối; mã truy cập có hạn 1 giờ và được làm mới tự động (tối đa 30 ngày không dùng).</li>
+</ul>
+<p>Xem và thu hồi ứng dụng, hoặc xóa tài khoản, tại <a href="/account">trang tài khoản</a>.</p>
+
+<h2 id="limits">Giới hạn</h2>
+<ul>
+<li>120 yêu cầu/phút cho mỗi cửa hàng; đăng nhập sai 5 lần sẽ khóa tài khoản 15 phút.</li>
+<li>Danh sách ngắn gọn: tối đa 50 mặt hàng sắp hết, 10 mặt hàng bán chạy/hóa đơn mỗi lần.</li>
+<li>Doanh số theo ngày, theo múi giờ của cửa hàng (mặc định Asia/Ho_Chi_Minh).</li>
+</ul>
+
+<h2 id="faq">Câu hỏi thường gặp</h2>
+<h3>ShopVoice có đọc cuộc trò chuyện của tôi không?</h3>
+<p>Không. ShopVoice chỉ nhận tên công cụ và tham số Claude gửi (ví dụ tên sản phẩm, khoảng ngày), không đọc hội thoại, bộ nhớ của Claude hay tệp của bạn.</p>
+<h3>Có thanh toán cho nhà cung cấp không?</h3>
+<p>Không. ShopVoice chỉ ghi đơn nháp và xác nhận trong sổ của cửa hàng.</p>
+<h3>Dữ liệu lưu ở đâu?</h3>
+<p>Trên Amazon Web Services tại Hoa Kỳ. Xem <a href="/privacy?lang=vi">chính sách quyền riêng tư</a>.</p>
+
+<h2 id="changelog">Nhật ký thay đổi</h2>
+<ul>
+<li><b>0.2.0 (10/2026)</b>: Connector cho Claude: đăng nhập OAuth 2.1 (CIMD và DCR), cửa hàng mẫu khi đăng ký, kết quả dễ đọc trong chat, chế độ chỉ xem, trang tài khoản, plugin ShopVoice.</li>
+<li><b>0.1.0 (09/2026)</b>: Bản đầu cho Alexa+: 9 công cụ giọng nói, đặt hàng hai bước, tách dữ liệu từng cửa hàng bằng Postgres RLS.</li>
+</ul>

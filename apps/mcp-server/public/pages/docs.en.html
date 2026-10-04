@@ -1,0 +1,83 @@
+<!-- title: Documentation -->
+<h1>ShopVoice documentation</h1>
+<p class="lead">ShopVoice lets the owner of a small grocery or convenience store run the shop from a conversation: check what is running low, see how sales compare with last week, find out whether a supplier invoice has arrived, and draft and confirm reorders. It works in Claude (web, desktop, mobile, Cowork and Claude Code) and by voice with Alexa+.</p>
+
+<div class="note"><b>Server URL:</b> <code>{{MCP_URL}}</code><br>Transport: Streamable HTTP (MCP protocol 2025-11-25). Sign-in: OAuth 2.1, a free ShopVoice account.</div>
+
+<h2 id="who">Who it is for</h2>
+<p>ShopVoice is for independent grocery and convenience stores (Vietnamese <i>tạp hóa</i> and similar) that use GroceryClaw to track stock, sales and supplier invoices. It is GroceryClaw's own first-party API. Every tool reads or writes only your shop's records in GroceryClaw.</p>
+
+<h2 id="connect">Connect in Claude</h2>
+<h3>From the directory</h3>
+<p>Open <b>Customize → Connectors</b>, find <b>ShopVoice</b> and select <b>Connect</b>. A ShopVoice sign-in window opens.</p>
+<h3>As a custom connector</h3>
+<ol>
+<li>In Claude, open <b>Customize → Connectors</b> and select <b>Add custom connector</b>.</li>
+<li>Name: <code>ShopVoice</code>. URL: <code>{{MCP_URL}}</code>. Leave the advanced OAuth fields empty.</li>
+<li>Select <b>Connect</b>. In the ShopVoice window, sign in or create an account, check what the app may do, and select <b>Allow</b>.</li>
+<li>In a chat, turn ShopVoice on from <b>+ → Connectors</b> and ask, for example, "What's running low in my shop?"</li>
+</ol>
+<h3>Claude Code</h3>
+<pre><code>claude mcp add --transport http shopvoice {{MCP_URL}}</code></pre>
+<p>Then run <code>/mcp</code> in a session and choose <b>Authenticate</b> to sign in. The ShopVoice plugin (<a href="https://github.com/vansyson1308/shopvoice-plugin">shopvoice-plugin</a>) adds skills for a daily briefing, restock planning, sales insights and supplier invoices, and uses this same server.</p>
+
+<h2 id="account">Your account and your shop</h2>
+<ul>
+<li><b>New accounts get a demo shop with sample data</b>, labelled "Demo shop (sample data)": 60 products, 5 suppliers, 90 days of sales and 3 supplier invoices, so you can try every tool right away. The sample data resets once a day, which also clears sample drafts.</li>
+<li><b>Real shops:</b> ask your shop owner for a GroceryClaw invite code and enter it on your <a href="/account">account page</a>. Your account then switches to the real shop. Connected apps must sign in again so they see the new shop.</li>
+<li>Choose English (prices in US dollars) or Vietnamese (prices in đồng) at sign-up.</li>
+</ul>
+
+<h2 id="tools">Tools</h2>
+<div class="table"><table>
+<tr><th>Tool</th><th>What it does</th><th>Try asking</th><th>Access</th></tr>
+<tr><td><code>get_daily_briefing</code></td><td>Yesterday's sales against the same weekday last week, low-stock count, invoices not yet synced</td><td>"Give me my shop briefing"</td><td>read</td></tr>
+<tr><td><code>get_low_stock</code></td><td>Products at or below their minimum, most urgent first, with days of cover</td><td>"What's running low?"</td><td>read</td></tr>
+<tr><td><code>get_stock_level</code></td><td>Stock of one product by name or barcode</td><td>"How much fresh milk do I have?"</td><td>read</td></tr>
+<tr><td><code>get_sales_summary</code></td><td>Revenue and units for a period, compared with the same weekday or the previous period</td><td>"How were sales yesterday compared to last Friday?"</td><td>read</td></tr>
+<tr><td><code>get_top_movers</code></td><td>Best or slowest sellers by units or revenue</td><td>"Top 5 products by revenue this week"</td><td>read</td></tr>
+<tr><td><code>get_invoice_status</code></td><td>Recent supplier invoices: arrived, matched to products, or synced to the point-of-sale system</td><td>"Did the Sunrise Beverages invoice arrive?"</td><td>read</td></tr>
+<tr><td><code>suggest_reorder</code></td><td>What to reorder per supplier and how much ((lead time + 7 days) × average daily sales − stock, rounded up to the pack size)</td><td>"What should I reorder from the dairy supplier?"</td><td>read</td></tr>
+<tr><td><code>create_reorder_draft</code></td><td>Creates purchase-order drafts, one per supplier. Nothing is ordered yet</td><td>"Draft a reorder for milk and eggs"</td><td>write</td></tr>
+<tr><td><code>confirm_reorder</code></td><td>Confirms those drafts in your shop's purchase orders</td><td>"Yes, confirm it"</td><td>write (Claude asks you first)</td></tr>
+</table></div>
+<p>The resource <code>shop://profile</code> has the shop name, currency and timezone. The prompt <code>morning_briefing</code> starts a daily briefing.</p>
+
+<h2 id="safety">How reorders stay safe</h2>
+<ol>
+<li><code>create_reorder_draft</code> only writes drafts. It returns a one-time confirmation token that expires after 5 minutes and works only for your shop.</li>
+<li><code>confirm_reorder</code> is marked destructive, so Claude asks for your approval before it runs. Confirming changes the drafts' status in your shop's records; <b>ShopVoice never contacts suppliers and never moves money</b>.</li>
+<li>Confirming the same drafts twice has no further effect, and expired drafts cannot be confirmed.</li>
+</ol>
+<p>By voice (Alexa+), the host keeps the token out of the model, and only an explicit "yes" confirms.</p>
+
+<h2 id="permissions">Permissions</h2>
+<ul>
+<li><code>shop.read</code>: read stock, sales, suppliers and invoices.</li>
+<li><code>shop.write</code>: create and confirm purchase-order drafts. You can untick this on the consent screen and keep read-only access. Claude will ask you to reconnect if you later ask for a reorder.</li>
+<li><code>offline_access</code>: stay connected; the access token lasts 1 hour and is refreshed automatically for up to 30 days of inactivity.</li>
+</ul>
+<p>See and revoke connected apps, or delete your account, on the <a href="/account">account page</a>.</p>
+
+<h2 id="limits">Limits</h2>
+<ul>
+<li>120 requests per minute per shop; sign-in is rate limited, and an account locks for 15 minutes after 5 wrong passwords.</li>
+<li>Lists are short by design: up to 50 low-stock items, and up to 10 top movers and invoices per call.</li>
+<li>Sales are daily totals; dates are in the shop's timezone (Asia/Ho_Chi_Minh by default).</li>
+</ul>
+
+<h2 id="faq">FAQ</h2>
+<h3>Does ShopVoice read my chats?</h3>
+<p>No. It only receives the tool name and arguments Claude sends, such as a product name or a date range. It never reads your conversation, Claude's memory or your files.</p>
+<h3>Can it pay a supplier?</h3>
+<p>No. ShopVoice only records purchase-order drafts and confirmations inside your shop's own records.</p>
+<h3>Where is my data stored?</h3>
+<p>On Amazon Web Services in the United States. See the <a href="/privacy">privacy policy</a>.</p>
+<h3>Something failed</h3>
+<p>Every error message says what to try next. If it keeps failing, write to {{SUPPORT_EMAIL}} (see <a href="/support">support</a>).</p>
+
+<h2 id="changelog">Changelog</h2>
+<ul>
+<li><b>0.2.0 (2026-10)</b>: Claude connector. OAuth 2.1 sign-in (CIMD and DCR), demo shop on sign-up, chat-friendly results, read-only mode, account page, and the ShopVoice plugin.</li>
+<li><b>0.1.0 (2026-09)</b>: first release for Alexa+ (Amazon hackathon): 9 voice-first tools, two-step reorders, per-shop isolation with Postgres row-level security.</li>
+</ul>

@@ -1,0 +1,60 @@
+<!-- title: Privacy policy -->
+<h1>Privacy policy</h1>
+<p class="muted">Effective 27 September 2026. Covers the ShopVoice service at {{BASE_URL}}: the MCP connector, the sign-in and account pages, and the ShopVoice plugin, which only talks to this service.</p>
+
+<h2>Who we are</h2>
+<p>ShopVoice is part of GroceryClaw, an open-source project (MIT licence, <a href="https://github.com/vansyson1308/groceryclaw">github.com/vansyson1308/groceryclaw</a>) run by an individual developer. Contact: {{SUPPORT_EMAIL}}.</p>
+
+<h2>What we collect</h2>
+<ul>
+<li><b>Account data:</b> your email address, a scrypt hash of your password (never the password itself), your language, and timestamps of sign-ins and failed sign-ins.</li>
+<li><b>Shop data:</b> products, stock levels, sales totals, suppliers, supplier invoices and purchase-order drafts. For a new account this is generated sample data. For a real shop it is the data you or your shop enter in GroceryClaw, or sync from your point-of-sale system if you turn that on.</li>
+<li><b>Tool-call audit log:</b> for each ShopVoice tool call, the tool name, its arguments with secrets removed, a short result summary, whether it succeeded, and how long it took.</li>
+<li><b>Connection records:</b> the apps you connected (for example Claude), which permissions you granted, and hashed tokens with their creation, use and expiry times.</li>
+<li><b>Technical logs:</b> IP address, time, request path and status, used for rate limiting, security and debugging.</li>
+</ul>
+<p><b>What we do not collect:</b> ShopVoice only receives what an app sends in a tool call, such as a product name or a date range. It never receives or stores your conversations with Claude, Claude's memory, chat history or your files. We do not collect payment details or health data.</p>
+
+<h2>Why we use it</h2>
+<ul>
+<li>To answer your requests about your shop and to record the reorders you confirm.</li>
+<li>To keep each shop's data separate. Every query runs under Postgres row-level security for that one shop.</li>
+<li>To secure the service: sign-in protection, rate limits and abuse detection.</li>
+<li>To fix problems, using the audit log and technical logs.</li>
+</ul>
+<p>We do not sell your data. We do not use it for advertising. We do not use it to train AI models.</p>
+
+<h2>Where it is stored and how it is protected</h2>
+<p>ShopVoice runs on Amazon Web Services in the United States (region us-east-1). Data travels over HTTPS (TLS). Disks are encrypted at rest. Tokens, authorization codes and client secrets are stored only as SHA-256 hashes. Passwords are stored only as scrypt hashes. The application's database role cannot read the sign-in tables directly.</p>
+
+<h2>How long we keep it</h2>
+<ul>
+<li>Tool-call audit log: 90 days, then deleted automatically.</li>
+<li>Technical server logs: 14 days.</li>
+<li>Expired or revoked tokens: deleted about 7 days after they expire. Unused app registrations: deleted after 30 days.</li>
+<li>Account and shop data: until you delete your account. Demo-shop sample data is regenerated every day.</li>
+</ul>
+
+<h2>Your choices and rights</h2>
+<ul>
+<li><b>Disconnect an app</b> at any time on the <a href="/account">account page</a>, or from Claude's connector settings.</li>
+<li><b>Delete your account</b> yourself on the <a href="/account">account page</a>. This takes effect immediately and erases your demo shop. You can also email {{SUPPORT_EMAIL}}; we complete requests within 30 days.</li>
+<li><b>Access or correct your data:</b> email us and we will reply within 30 days.</li>
+</ul>
+
+<h2>Who else processes data</h2>
+<ul>
+<li><b>Amazon Web Services</b> hosts the service.</li>
+<li><b>The app you connect</b> (for example Anthropic's Claude, or Amazon Alexa) receives the tool results it asked for and processes them under its own terms and privacy policy.</li>
+<li><b>KiotViet</b> (a point-of-sale system) receives or sends data only if your shop turns on that optional sync in GroceryClaw.</li>
+</ul>
+<p>We share nothing with anyone else unless the law requires it.</p>
+
+<h2>Children</h2>
+<p>ShopVoice is a business tool and is not intended for anyone under 18.</p>
+
+<h2>Changes</h2>
+<p>We will post changes on this page with a new effective date. Significant changes are also announced in the <a href="/docs#changelog">docs changelog</a> before they take effect.</p>
+
+<h2>Contact</h2>
+<p>{{SUPPORT_EMAIL}}. See also the <a href="/support">support page</a>.</p>
