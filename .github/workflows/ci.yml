@@ -85,6 +85,10 @@ jobs:
     env:
       PAYPAL_CLIENT_ID: ${{ secrets.PAYPAL_CLIENT_ID }}
       PAYPAL_CLIENT_SECRET: ${{ secrets.PAYPAL_CLIENT_SECRET }}
+      # Optional: a vault id saved by `npm run spike` and the supplier sandbox email.
+      # With them, the unattended money-flow tests run too; without, they skip.
+      SANDBOX_VAULT_ID: ${{ secrets.SANDBOX_VAULT_ID }}
+      SANDBOX_SUPPLIER_EMAIL: ${{ secrets.SANDBOX_SUPPLIER_EMAIL }}
       PAYPAL_MODE: sandbox
     steps:
       - uses: actions/checkout@v4

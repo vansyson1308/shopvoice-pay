@@ -2,6 +2,33 @@
 
 Running log for ShopVoice Pay (PayPal AI Hackathon). Newest entry first. Times are Vietnam time (UTC+7).
 
+## 2026-10-05 (Mon, early VN): M1 money core complete
+
+**Done**
+- PR #4 (merged):
+  - **Migration 019**: 8 tenant-scoped tables with forced RLS. Ledger invariants are DB CHECKs; the event log is append-only; each request id can be recorded once.
+  - **Ledger state machine**, property-tested over 5,000 random sequences.
+  - **PaymentsRepository** with memory and Postgres implementations, held to one shared 10-case contract.
+  - Fixed a transaction bug that erased application error classes and codes.
+- PR #5: **PaymentsService**:
+  - Connect PayPal (vault)
+  - pay for a draft within policy: autopay hold, step-up approval (voice, tap or PayPal QR), or block
+  - capture on delivery (full, partial + void, none, hold for over-delivery), reauthorize past the honor period
+  - refund, Payouts settlement, sync/retry with deterministic `PayPal-Request-Id`s
+- **Real-sandbox proof of the hero money path through the service**: vaulted hold of $84, then 10 of 12 delivered → $70 captured and $14 released (PayPal shows `VOIDED`), then a $7 refund and a $63 supplier payout.
+
+**Verified locally**
+- Unit tests: 192/192.
+- DB tests: all green on Postgres 16 (RLS, contract, imported suites).
+- Sandbox: 5/5 suite + service hero path.
+- Coverage: policy 98.6% branches; service 95% lines.
+
+**Next (M2):**
+- Wire the service into the MCP tools: paying `confirm_reorder`, `record_delivery`, `request_refund`, `get_payment_status`, `get_spend_summary`, `explain_payment`, `get/set_spending_policy`.
+- US seed.
+- LLM brain (Bedrock).
+- Console with approvals and the AG Grid ledger.
+
 ## 2026-10-05 (Mon, 00:30 VN): Day-1 spike run against the real sandbox; settlement confirmed
 
 **Owner set up:** sandbox app "ShopVoice Pay" (Merchant; the platform account is a US business sandbox account; Vault, Payouts, Invoicing and Transaction search enabled), 1 personal and 4 business US sandbox accounts, env vars, repo Actions secrets, and branch protection on `main`.
