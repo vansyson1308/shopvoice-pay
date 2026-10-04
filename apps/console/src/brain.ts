@@ -55,8 +55,11 @@ const WEEKDAYS = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'satur
 export const AFFIRMATIVE = /\b(yes|yeah|yep|yup|confirm|confirmed|go ahead|place (it|them|the orders?)|do it|sure|ok(ay)?|please do)\b/i;
 export const NEGATIVE = /\b(no|nope|don't|do not|cancel|stop|wait|never ?mind)\b/i;
 
+/** Questions are never a yes ("Why did the egg order need my OK?"). */
+const QUESTION = /\?\s*$|^\s*(why|what|how|when|where|who|which|whose|did|does|do you|can|could|is|are|was|were|should|would|will)\b/i;
+
 export function isAffirmative(text: string): boolean {
-  return AFFIRMATIVE.test(text) && !NEGATIVE.test(text);
+  return !QUESTION.test(text) && AFFIRMATIVE.test(text) && !NEGATIVE.test(text);
 }
 
 function lastUserText(messages: ChatMessage[]): string {

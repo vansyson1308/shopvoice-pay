@@ -578,6 +578,8 @@ async function loadLedger() {
         pagination: true,
         paginationPageSize: 20,
         paginationPageSizeSelector: [20, 50, 100],
+        // 14 columns: render them all so screen readers (and tests) see every cell.
+        suppressColumnVirtualisation: true,
         onRowClicked: (e) => void openPayment(e.data.id),
         onCellKeyDown: (e) => { if (e.event?.key === 'Enter') void openPayment(e.data.id); }
       });

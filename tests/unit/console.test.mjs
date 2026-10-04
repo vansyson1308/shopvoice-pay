@@ -25,7 +25,7 @@ test('rules brain maps demo utterances to the right MCP tools', () => {
 
 test('affirmative detection rejects hedged or negative answers', () => {
   for (const t of ['yes', 'Yes, confirm', 'go ahead', 'Sure, place it']) assert.equal(isAffirmative(t), true, t);
-  for (const t of ['no', "yes wait, don't", 'cancel', 'what?']) assert.equal(isAffirmative(t), false, t);
+  for (const t of ['no', "yes wait, don't", 'cancel', 'what?', 'Why did the egg order need my OK?', 'Is that OK to place?', 'ok?']) assert.equal(isAffirmative(t), false, t);
 });
 
 test('system prompt carries the date and the two-step rule', () => {

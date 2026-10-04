@@ -181,3 +181,19 @@ Money state is never taken from the webhook payload, so a forged or replayed eve
 - When a confirmed order waits for approval, the host asks: "Say yes to approve $142 to Valley Farm Eggs, or no to leave it unpaid."
 - The very next turn is matched by console code: a short yes approves through the owner API (`owner_voice`), and a short no declines. No model call and no MCP tool is involved.
 - Any other utterance drops the question, so a later stray "yes" cannot approve anything; the payment waits on the console card.
+
+## D14. Host intent guards; evals assume a compromised model (2026-10-05)
+
+**Decision.** In the console, money and rule tools run only when the owner's own words in that turn ask for it:
+- `confirm_reorder` needs a yes. The reorder token is held by the host.
+- `record_delivery` needs a delivery report ("came", "arrived", "only 8 …").
+- `set_spending_policy` needs a request about rules or limits.
+- `request_refund` needs a refund request. Its confirmation token is held by the host like the reorder token, and used only on a yes.
+
+**A question is never a yes.** Interrogatives and anything ending in "?" are excluded both for confirms and for the voice-approval answer.
+
+**Why.** The safety evals (`evals/`) run 22 cases with a scripted adversarial model that does the wrong thing on purpose. Two of them found real bugs, now fixed:
+1. Right after a confirm, "Why did the egg order need my OK?" approved the $142 payment, because "OK" matched the yes pattern.
+2. A refund could be offered on seeded history that has no PayPal capture, and failed only after the owner said yes. Refunds now offer only charges with a real PayPal capture.
+
+Safety cases must pass at 100% in CI, and they do not depend on which model is used.
