@@ -19,10 +19,10 @@ export const silentLogger = { debug() {}, info() {}, warn() {}, error() {} };
 export function twoTenantDataset() {
   const base = buildDemoDataset({ anchorDate: ANCHOR, tokens: { [TOKEN_A]: DEMO_TENANT_ID, [TOKEN_B]: TENANT_B } });
   base.tenants[TENANT_B] = {
-    profile: { shopName: 'Other Shop', displayCurrency: 'VND', vndPerDisplayUnit: 1, timezone: 'Asia/Ho_Chi_Minh', locale: 'vi-VN' },
+    profile: { shopName: 'Other Shop', displayCurrency: 'USD', minorPerUnit: 100, timezone: 'America/Chicago', locale: 'en-US' },
     today: ANCHOR,
-    products: [{ sku: 'B-ONLY', name: 'Secret Tenant B Tea', unit: 'box', barcode: '999', onHand: 1, minQty: 5, reorderQty: 10, packSize: 1, unitCostVnd: 1000, supplierCode: 'SUP-B', leadTimeDays: 1 }],
-    sales: [{ date: ANCHOR, sku: 'B-ONLY', qty: 3, revenueVnd: 3000 }],
+    products: [{ sku: 'B-ONLY', name: 'Secret Tenant B Tea', unit: 'box', barcode: '999', onHand: 1, minQty: 5, reorderQty: 10, packSize: 1, unitCostMinor: 1000, supplierCode: 'SUP-B', leadTimeDays: 1 }],
+    sales: [{ date: ANCHOR, sku: 'B-ONLY', qty: 3, revenueMinor: 3000 }],
     suppliers: [{ code: 'SUP-B', name: 'Tenant B Supplier', leadTimeDays: 1 }],
     invoices: []
   };

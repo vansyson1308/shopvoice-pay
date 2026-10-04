@@ -43,7 +43,7 @@ async function seedTenant(id, name) {
   await query(pool, 'INSERT INTO suppliers (tenant_id, supplier_code, name) VALUES ($1, $2, $3)', [id, 'SUP-1', `${name} supplier`]);
   await query(pool, 'INSERT INTO stock_levels (tenant_id, sku, on_hand_qty, source) VALUES ($1, $2, $3, $4)', [id, 'SKU-1', 5, 'seed']);
   await query(pool, 'INSERT INTO reorder_rules (tenant_id, sku, min_qty, reorder_qty) VALUES ($1, $2, $3, $4)', [id, 'SKU-1', 10, 20]);
-  await query(pool, 'INSERT INTO sales_daily (tenant_id, sale_date, sku, qty_sold, revenue_vnd) VALUES ($1, CURRENT_DATE, $2, $3, $4)', [id, 'SKU-1', 3, 30000]);
+  await query(pool, 'INSERT INTO sales_daily (tenant_id, sale_date, sku, qty_sold, revenue_minor) VALUES ($1, CURRENT_DATE, $2, $3, $4)', [id, 'SKU-1', 3, 30000]);
   await query(pool, "INSERT INTO purchase_order_drafts (tenant_id, supplier_code, expires_at) VALUES ($1, $2, now() + interval '5 minutes')", [id, 'SUP-1']);
   await query(pool, 'INSERT INTO voice_audit_log (tenant_id, tool_name) VALUES ($1, $2)', [id, 'get_low_stock']);
 }

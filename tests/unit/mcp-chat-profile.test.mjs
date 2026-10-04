@@ -75,12 +75,12 @@ test('chat profile: every tool returns markdown plus structuredContent, reasonab
     const calls = [
       ['get_daily_briefing', {}, /\*\*Daily shop briefing\*\*/],
       ['get_low_stock', {}, /\| Product \| On hand \| Minimum \|/],
-      ['get_stock_level', { product: 'fresh milk 1l' }, /\*\*Fresh Milk 1L\*\*: \d+ carton on hand/],
+      ['get_stock_level', { product: 'whole milk' }, /\*\*Whole milk 1 gal \(crate of 2\)\*\*: \d+ crates? on hand/],
       ['get_sales_summary', { period: 'yesterday' }, /\*\*Sales, yesterday/],
       ['get_top_movers', { period: 'last_7_days', metric: 'revenue', limit: 5 }, /\| # \| Product \| Units \| Revenue \|/],
-      ['get_invoice_status', {}, /Synced to POS|Matched, not synced/],
+      ['get_invoice_status', {}, /Posted to inventory|Matched, not posted/],
       ['suggest_reorder', {}, /\*\*Suggested reorder:/],
-      ['create_reorder_draft', { items: [{ product: 'fresh milk 1l' }] }, /confirmation_token: `/]
+      ['create_reorder_draft', { items: [{ product: 'whole milk' }] }, /confirmation_token: `/]
     ];
     for (const [name, args, re] of calls) {
       const r = await callTool(srv, token, s.session, name, args);

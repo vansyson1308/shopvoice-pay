@@ -15,10 +15,9 @@ function cell(v: unknown): string {
   return str(v).replace(/\|/g, '/').replace(/\s+/g, ' ').trim() || '–';
 }
 
-/** Display-currency amount: "$1,234.50", "1.234.000 ₫", "12.30 EUR". */
+/** Display-currency amount: "$1,234.50", "12.30 EUR". */
 export function money(amount: unknown, currency: string): string {
   const n = num(amount);
-  if (currency === 'VND') return `${Math.round(n).toLocaleString('vi-VN')} ₫`;
   const fixed = n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   if (currency === 'USD') return `$${fixed}`;
   if (currency === 'EUR') return `€${fixed}`;
@@ -59,8 +58,8 @@ function period(p: unknown): string {
 
 const INVOICE_STATUS: Record<string, string> = {
   arrived: 'Arrived, not matched yet',
-  mapped: 'Matched, not synced to POS',
-  synced: 'Synced to POS'
+  mapped: 'Matched, not posted to inventory',
+  synced: 'Posted to inventory'
 };
 
 const RENDERERS: Record<string, (d: Data, c: string) => string> = {
@@ -158,5 +157,5 @@ export function toMarkdown(toolName: string, data: unknown, fallback: string): s
   const render = RENDERERS[toolName];
   if (!render || !data || typeof data !== 'object') return fallback;
   const d = data as Data;
-  return render(d, str(d.currency) || 'VND');
+  return render(d, str(d.currency) || 'USD');
 }

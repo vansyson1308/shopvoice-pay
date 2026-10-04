@@ -7,7 +7,7 @@ export interface ShopProfile {
   readonly tenantId: string;
   readonly shopName: string;
   readonly displayCurrency: string;
-  readonly vndPerDisplayUnit: number;
+  readonly minorPerUnit: number;
   readonly timezone: string;
   readonly locale: string;
 }
@@ -21,7 +21,7 @@ export interface StockRow {
   readonly minQty: number;
   readonly reorderQty: number;
   readonly packSize: number;
-  readonly unitCostVnd: number;
+  readonly unitCostMinor: number;
   readonly supplierCode: string | null;
   readonly leadTimeDays: number;
   /** Average units sold per day over the 14 full days before `today`. */
@@ -37,7 +37,7 @@ export interface ProductMatch {
 }
 
 export interface SalesTotals {
-  readonly revenueVnd: number;
+  readonly revenueMinor: number;
   readonly units: number;
   readonly daysWithSales: number;
 }
@@ -47,7 +47,7 @@ export interface SkuSales {
   readonly name: string;
   readonly unit: string | null;
   readonly units: number;
-  readonly revenueVnd: number;
+  readonly revenueMinor: number;
 }
 
 export interface Supplier {
@@ -63,7 +63,7 @@ export interface InvoiceRow {
   readonly supplierName: string | null;
   readonly invoiceDate: string;
   readonly receivedAt: string;
-  readonly totalVnd: number;
+  readonly totalMinor: number;
   readonly lineCount: number;
   readonly resolvedCount: number;
   readonly synced: boolean;
@@ -75,20 +75,20 @@ export interface DraftLine {
   readonly name: string;
   readonly unit: string | null;
   readonly qty: number;
-  readonly unitCostVnd: number;
+  readonly unitCostMinor: number;
 }
 
 export interface NewDraft {
   readonly supplierCode: string;
   readonly lines: readonly DraftLine[];
-  readonly totalVnd: number;
+  readonly totalMinor: number;
 }
 
 export interface DraftRow {
   readonly id: string;
   readonly supplierCode: string;
   readonly lines: readonly DraftLine[];
-  readonly totalVnd: number;
+  readonly totalMinor: number;
   readonly status: 'draft' | 'confirmed' | 'sent' | 'cancelled';
   readonly expiresAt: string;
   readonly expired: boolean;

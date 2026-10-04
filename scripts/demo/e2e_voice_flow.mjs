@@ -18,7 +18,7 @@ export const DEMO_UTTERANCES = [
   { text: 'How were sales today compared to last Friday?', expectTools: ['get_sales_summary'], expectReply: /today/i, expectArgs: { get_sales_summary: { compare_weekday: 'friday' } } },
   { text: 'Reorder milk and eggs', expectTools: ['create_reorder_draft'], expectReply: /draft|confirm/i, expectCard: true },
   { text: 'Yes, confirm', expectTools: ['confirm_reorder'], expectReply: /confirmed|done/i, expectOrder: 'confirmed' },
-  { text: 'Did the Sunrise Beverages invoice arrive?', expectTools: ['get_invoice_status'], expectReply: /Sunrise Beverages/i }
+  { text: 'Did the Harbor Wholesale invoice arrive?', expectTools: ['get_invoice_status'], expectReply: /Harbor Wholesale/i }
 ];
 
 function arg(name) {

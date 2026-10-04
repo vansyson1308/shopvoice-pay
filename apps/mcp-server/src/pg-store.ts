@@ -26,7 +26,7 @@ class PgShopRepository implements ShopRepository {
   async getProfile(): Promise<ShopProfile> {
     if (this.profile) return this.profile;
     const { rows } = await this.client.query(
-      `SELECT shop_name, display_currency, vnd_per_display_unit, timezone, locale
+      `SELECT shop_name, display_currency, minor_per_unit, timezone, locale
          FROM shop_profiles WHERE tenant_id = _rls_tenant_id()`
     );
     const row = rows[0];
@@ -35,7 +35,7 @@ class PgShopRepository implements ShopRepository {
       tenantId: this.tenantId,
       shopName: str(row.shop_name),
       displayCurrency: str(row.display_currency),
-      vndPerDisplayUnit: num(row.vnd_per_display_unit),
+      minorPerUnit: num(row.minor_per_unit),
       timezone: str(row.timezone),
       locale: str(row.locale)
     };
@@ -56,7 +56,7 @@ class PgShopRepository implements ShopRepository {
       `SELECT p.sku, p.product_name, COALESCE(s.unit, p.unit) AS unit, p.barcode,
               COALESCE(s.on_hand_qty, 0) AS on_hand,
               COALESCE(r.min_qty, 0) AS min_qty, COALESCE(r.reorder_qty, 0) AS reorder_qty,
-              COALESCE(r.pack_size, 1) AS pack_size, COALESCE(r.unit_cost_vnd, 0) AS unit_cost_vnd,
+              COALESCE(r.pack_size, 1) AS pack_size, COALESCE(r.unit_cost_minor, 0) AS unit_cost_minor,
               r.preferred_supplier_code, COALESCE(r.lead_time_days, 2) AS lead_time_days,
               COALESCE(sd.units, 0) / 14.0 AS avg_daily
          FROM product_cache p
@@ -81,7 +81,7 @@ class PgShopRepository implements ShopRepository {
       minQty: num(r.min_qty),
       reorderQty: num(r.reorder_qty),
       packSize: num(r.pack_size) || 1,
-      unitCostVnd: num(r.unit_cost_vnd),
+      unitCostMinor: num(r.unit_cost_minor),
       supplierCode: strOrNull(r.preferred_supplier_code),
       leadTimeDays: num(r.lead_time_days),
       avgDaily14d: num(r.avg_daily)
@@ -100,27 +100,27 @@ class PgShopRepository implements ShopRepository {
 
   async salesTotals(startDate: string, endDate: string): Promise<SalesTotals> {
     const { rows } = await this.client.query(
-      `SELECT COALESCE(sum(revenue_vnd), 0) AS revenue, COALESCE(sum(qty_sold), 0) AS units,
+      `SELECT COALESCE(sum(revenue_minor), 0) AS revenue, COALESCE(sum(qty_sold), 0) AS units,
               count(DISTINCT sale_date) AS days
          FROM sales_daily
         WHERE tenant_id = _rls_tenant_id() AND sale_date BETWEEN $1::date AND $2::date`,
       [startDate, endDate]
     );
     const r = rows[0] ?? {};
-    return { revenueVnd: num(r.revenue), units: num(r.units), daysWithSales: num(r.days) };
+    return { revenueMinor: num(r.revenue), units: num(r.units), daysWithSales: num(r.days) };
   }
 
   async salesBySku(startDate: string, endDate: string): Promise<SkuSales[]> {
     const { rows } = await this.client.query(
       `SELECT sd.sku, COALESCE(p.product_name, sd.sku) AS name, p.unit,
-              sum(sd.qty_sold) AS units, sum(sd.revenue_vnd) AS revenue
+              sum(sd.qty_sold) AS units, sum(sd.revenue_minor) AS revenue
          FROM sales_daily sd
          LEFT JOIN product_cache p ON p.tenant_id = sd.tenant_id AND p.sku = sd.sku
         WHERE sd.tenant_id = _rls_tenant_id() AND sd.sale_date BETWEEN $1::date AND $2::date
         GROUP BY sd.sku, p.product_name, p.unit`,
       [startDate, endDate]
     );
-    return rows.map((r) => ({ sku: str(r.sku), name: str(r.name), unit: strOrNull(r.unit), units: num(r.units), revenueVnd: num(r.revenue) }));
+    return rows.map((r) => ({ sku: str(r.sku), name: str(r.name), unit: strOrNull(r.unit), units: num(r.units), revenueMinor: num(r.revenue) }));
   }
 
   async listSuppliers(): Promise<Supplier[]> {
@@ -156,7 +156,7 @@ class PgShopRepository implements ShopRepository {
       supplierName: strOrNull(r.supplier_name),
       invoiceDate: str(r.invoice_date),
       receivedAt: r.created_at instanceof Date ? r.created_at.toISOString() : str(r.created_at),
-      totalVnd: num(r.total),
+      totalMinor: num(r.total),
       lineCount: num(r.line_count),
       resolvedCount: num(r.resolved_count),
       synced: r.synced === true,
@@ -170,10 +170,10 @@ class PgShopRepository implements ShopRepository {
     for (const draft of drafts) {
       const { rows } = await this.client.query(
         `INSERT INTO purchase_order_drafts
-           (tenant_id, supplier_code, lines, total_vnd, status, created_via, confirmation_token_hash, expires_at)
+           (tenant_id, supplier_code, lines, total_minor, status, created_via, confirmation_token_hash, expires_at)
          VALUES (_rls_tenant_id(), $1, $2::jsonb, $3, 'draft', 'voice', $4, now() + make_interval(secs => $5))
          RETURNING id, expires_at`,
-        [draft.supplierCode, JSON.stringify(draft.lines), draft.totalVnd, tokenHash, ttlSeconds]
+        [draft.supplierCode, JSON.stringify(draft.lines), draft.totalMinor, tokenHash, ttlSeconds]
       );
       ids.push(str(rows[0]?.id));
       const exp = rows[0]?.expires_at;
@@ -184,7 +184,7 @@ class PgShopRepository implements ShopRepository {
 
   async findDraftsByTokenHash(tokenHash: string): Promise<DraftRow[]> {
     const { rows } = await this.client.query(
-      `SELECT id, supplier_code, lines, total_vnd, status, expires_at, expires_at <= now() AS expired
+      `SELECT id, supplier_code, lines, total_minor, status, expires_at, expires_at <= now() AS expired
          FROM purchase_order_drafts
         WHERE tenant_id = _rls_tenant_id() AND confirmation_token_hash = $1
         ORDER BY created_at, supplier_code
@@ -195,7 +195,7 @@ class PgShopRepository implements ShopRepository {
       id: str(r.id),
       supplierCode: str(r.supplier_code),
       lines: (Array.isArray(r.lines) ? r.lines : []) as DraftLine[],
-      totalVnd: num(r.total_vnd),
+      totalMinor: num(r.total_minor),
       status: str(r.status) as DraftRow['status'],
       expiresAt: r.expires_at instanceof Date ? r.expires_at.toISOString() : str(r.expires_at),
       expired: r.expired === true

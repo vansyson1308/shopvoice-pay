@@ -12,7 +12,7 @@ import {
 import type { CompareMode, PeriodName, Weekday } from './analytics.js';
 import {
   compareClause, countWord, describeChange, fitSpeech, formatDaysLeft, formatMoney, formatQty, joinList, percentChange,
-  speakList, vndToDisplay, MAX_LIST_ITEMS
+  speakList, minorToDisplay, MAX_LIST_ITEMS
 } from './speech.js';
 import type { MoneyFormat } from './speech.js';
 
@@ -188,7 +188,7 @@ export const getStockLevel = defineTool({
   title: 'Stock level for one product',
   description: 'How many units of one product are on hand, with days of cover. Accepts a product name (fuzzy matched, spoken or typed) or a barcode. If several products match, returns the candidates instead of a stock level.',
   input: {
-    product: z.string().trim().min(2).max(80).describe('Product name as spoken, e.g. "fresh milk", or a barcode.')
+    product: z.string().trim().min(2).max(80).describe('Product name as spoken, e.g. "whole milk", or a barcode.')
   },
   output: {
     status: z.enum(['found', 'ambiguous', 'not_found']),
@@ -231,12 +231,12 @@ export const getSalesSummary = defineTool({
   output: {
     period: periodOut,
     ...moneyOut,
-    revenue_vnd: z.number(),
+    revenue_minor: z.number(),
     revenue: z.number(),
     units: z.number(),
     comparison: z.object({
       period: periodOut,
-      revenue_vnd: z.number(),
+      revenue_minor: z.number(),
       revenue: z.number(),
       units: z.number(),
       change_pct: z.number().nullable(),
@@ -253,18 +253,18 @@ export const getSalesSummary = defineTool({
     const cmpRange = resolveComparison(range, ctx.today, args.compare_to as CompareMode, args.compare_weekday as Weekday | undefined);
     const cmp = cmpRange ? await ctx.repo.salesTotals(cmpRange.start, cmpRange.end) : null;
 
-    const revenue = formatMoney(totals.revenueVnd, ctx.money);
+    const revenue = formatMoney(totals.revenueMinor, ctx.money);
     const items = formatQty(totals.units, 'item');
     const label = range.label.charAt(0).toUpperCase() + range.label.slice(1);
-    const pct = cmp ? percentChange(totals.revenueVnd, cmp.revenueVnd) : null;
-    const pctOf = cmp && cmp.revenueVnd > 0 ? Math.round((totals.revenueVnd / cmp.revenueVnd) * 100) : null;
+    const pct = cmp ? percentChange(totals.revenueMinor, cmp.revenueMinor) : null;
+    const pctOf = cmp && cmp.revenueMinor > 0 ? Math.round((totals.revenueMinor / cmp.revenueMinor) * 100) : null;
 
     let speech: string;
     if (totals.units === 0) {
       speech = `No sales recorded ${range.label}.`;
     } else if (range.partial && cmp && cmpRange) {
       const prefix = range.label === 'today' ? 'So far today' : `So far ${range.label}`;
-      const cmpMoney = formatMoney(cmp.revenueVnd, ctx.money);
+      const cmpMoney = formatMoney(cmp.revenueMinor, ctx.money);
       speech = fitSpeech([
         cmpRange.start === cmpRange.end && pctOf !== null
           ? `${prefix}: ${revenue} from ${items}. That's ${pctOf}% of ${cmpRange.label}'s full day, ${cmpMoney}.`
@@ -273,7 +273,7 @@ export const getSalesSummary = defineTool({
       ]);
     } else if (cmp && cmpRange) {
       speech = fitSpeech([
-        `${label}: ${revenue} from ${items}, ${compareClause(pct, cmpRange.label, formatMoney(cmp.revenueVnd, ctx.money))}.`,
+        `${label}: ${revenue} from ${items}, ${compareClause(pct, cmpRange.label, formatMoney(cmp.revenueMinor, ctx.money))}.`,
         `${label}: ${revenue}, ${describeChange(pct)} on ${cmpRange.label}.`
       ]);
     } else {
@@ -285,13 +285,13 @@ export const getSalesSummary = defineTool({
       data: {
         period: range,
         currency: ctx.money.currency,
-        revenue_vnd: totals.revenueVnd,
-        revenue: vndToDisplay(totals.revenueVnd, ctx.money),
+        revenue_minor: totals.revenueMinor,
+        revenue: minorToDisplay(totals.revenueMinor, ctx.money),
         units: totals.units,
         comparison: cmp && cmpRange ? {
           period: cmpRange,
-          revenue_vnd: cmp.revenueVnd,
-          revenue: vndToDisplay(cmp.revenueVnd, ctx.money),
+          revenue_minor: cmp.revenueMinor,
+          revenue: minorToDisplay(cmp.revenueMinor, ctx.money),
           units: cmp.units,
           change_pct: pct,
           percent_of_comparison: pctOf
@@ -324,7 +324,7 @@ export const getTopMovers = defineTool({
       name: z.string(),
       unit: z.string().nullable(),
       units: z.number(),
-      revenue_vnd: z.number(),
+      revenue_minor: z.number(),
       revenue: z.number()
     }))
   },
@@ -336,15 +336,15 @@ export const getTopMovers = defineTool({
     });
     const [sales, stock] = [await ctx.repo.salesBySku(range.start, range.end), await ctx.repo.listStock()];
     const bySku = new Map(sales.map((s) => [s.sku, s]));
-    const all = stock.map((r) => bySku.get(r.sku) ?? { sku: r.sku, name: r.name, unit: r.unit, units: 0, revenueVnd: 0 });
-    const key = (s: { units: number; revenueVnd: number }) => (args.metric === 'units' ? s.units : s.revenueVnd);
+    const all = stock.map((r) => bySku.get(r.sku) ?? { sku: r.sku, name: r.name, unit: r.unit, units: 0, revenueMinor: 0 });
+    const key = (s: { units: number; revenueMinor: number }) => (args.metric === 'units' ? s.units : s.revenueMinor);
     all.sort((a, b) => (args.direction === 'top' ? key(b) - key(a) : key(a) - key(b)) || a.name.localeCompare(b.name));
     const picked = all.slice(0, args.limit);
     const items = picked.map((s, i) => ({
       rank: i + 1, sku: s.sku, name: s.name, unit: s.unit, units: s.units,
-      revenue_vnd: s.revenueVnd, revenue: vndToDisplay(s.revenueVnd, ctx.money)
+      revenue_minor: s.revenueMinor, revenue: minorToDisplay(s.revenueMinor, ctx.money)
     }));
-    const describe = (s: typeof picked[number]) => `${s.name}, ${args.metric === 'units' ? formatQty(s.units, s.unit) : formatMoney(s.revenueVnd, ctx.money)}`;
+    const describe = (s: typeof picked[number]) => `${s.name}, ${args.metric === 'units' ? formatQty(s.units, s.unit) : formatMoney(s.revenueMinor, ctx.money)}`;
     const when = range.label === 'today' ? 'so far today' : range.label.startsWith('the ') ? `over ${range.label}` : range.label;
     const heading = `${args.direction === 'top' ? 'Top sellers' : 'Slowest sellers'} ${when} by ${args.metric}`;
     const speech = picked.length === 0
@@ -368,23 +368,25 @@ function invoiceState(inv: InvoiceRow): InvoiceState {
 }
 
 const STOP_WORDS = new Set(['the', 'a', 'an', 'invoice', 'invoices', 'from', 'delivery', 'order', 'bill', 'supplier', 'did', 'has', 'arrive', 'arrived', 'come', 'in']);
-const SYNONYMS: Record<string, string> = { drinks: 'beverages', drink: 'beverages', soda: 'beverages', sodas: 'beverages', bakery: 'bakery', snack: 'snacks', dairy: 'dairy', eggs: 'eggs' };
+const DRINKS = ['beverage', 'drink', 'soda', 'cola', 'water', 'tea', 'coffee'];
+const SYNONYMS: Record<string, readonly string[]> = {
+  drinks: DRINKS, drink: DRINKS, beverages: DRINKS, soda: DRINKS, sodas: DRINKS,
+  snack: ['snack', 'chip', 'pretzel', 'candy'], snacks: ['snack', 'chip', 'pretzel', 'candy'],
+  bread: ['bread', 'bakery', 'bagel', 'muffin'], milk: ['milk', 'dairy']
+};
 
 export function invoiceMatches(inv: InvoiceRow, query: string): boolean {
   const words = query.toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length > 1 && !STOP_WORDS.has(w));
   if (words.length === 0) return true;
   const haystack = [inv.supplierName ?? '', inv.supplierCode ?? '', inv.invoiceNumber, ...inv.productNames]
     .join(' ').toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
-  return words.every((w) => {
-    const target = SYNONYMS[w] ?? w;
-    const stem = target.length > 4 ? target.replace(/s$/, '') : target;
-    return haystack.some((h) => h.startsWith(stem));
-  });
+  const stem = (t: string) => (t.length > 4 ? t.replace(/s$/, '') : t);
+  return words.every((w) => (SYNONYMS[w] ?? [w]).some((target) => haystack.some((h) => h.startsWith(stem(target)))));
 }
 
 function describeInvoiceState(inv: InvoiceRow, state: InvoiceState): string {
-  if (state === 'synced') return 'synced to KiotViet';
-  if (state === 'mapped') return 'matched to your products but not synced to KiotViet yet';
+  if (state === 'synced') return 'posted to your inventory';
+  if (state === 'mapped') return 'matched to your products but not posted to inventory yet';
   const pending = inv.lineCount - inv.resolvedCount;
   return `received, with ${pending} ${pending === 1 ? 'line' : 'lines'} still to match`;
 }
@@ -397,7 +399,7 @@ function invoiceWhen(inv: InvoiceRow, today: string): string {
 export const getInvoiceStatus = defineTool({
   name: 'get_invoice_status',
   title: 'Supplier invoice status',
-  description: 'Latest supplier invoices and whether each has arrived, been matched to products (mapped), or been synced to the shop\'s point-of-sale system (KiotViet). Filter by supplier name or a product on the invoice, e.g. "Sunrise Beverages" or "drinks".',
+  description: 'Latest supplier invoices and whether each has arrived, been matched to products (mapped), or been posted to the shop\'s inventory (synced). Filter by supplier name or a product on the invoice, e.g. "Harbor Wholesale" or "bakery".',
   input: {
     supplier: z.string().trim().max(80).optional().describe('Supplier name, category or product word to filter by.'),
     limit: z.number().int().min(1).max(10).default(3)
@@ -411,7 +413,7 @@ export const getInvoiceStatus = defineTool({
       supplier_code: z.string().nullable(),
       supplier_name: z.string().nullable(),
       invoice_date: z.string(),
-      total_vnd: z.number(),
+      total_minor: z.number(),
       total: z.number(),
       line_count: z.number().int(),
       unmatched_lines: z.number().int(),
@@ -429,8 +431,8 @@ export const getInvoiceStatus = defineTool({
       supplier_code: inv.supplierCode,
       supplier_name: inv.supplierName,
       invoice_date: inv.invoiceDate,
-      total_vnd: inv.totalVnd,
-      total: vndToDisplay(inv.totalVnd, ctx.money),
+      total_minor: inv.totalMinor,
+      total: minorToDisplay(inv.totalMinor, ctx.money),
       line_count: inv.lineCount,
       unmatched_lines: Math.max(0, inv.lineCount - inv.resolvedCount),
       status: invoiceState(inv)
@@ -442,8 +444,8 @@ export const getInvoiceStatus = defineTool({
     if (query && top) {
       const state = invoiceState(top);
       speech = fitSpeech([
-        `Yes. The ${who(top)} invoice ${top.invoiceNumber} arrived ${invoiceWhen(top, ctx.today)}, ${formatMoney(top.totalVnd, ctx.money)}. It's ${describeInvoiceState(top, state)}.`,
-        `Yes, the ${who(top)} invoice arrived ${invoiceWhen(top, ctx.today)}. It's ${state === 'synced' ? 'synced' : state === 'mapped' ? 'matched, not synced yet' : 'waiting to be matched'}.`
+        `Yes. The ${who(top)} invoice ${top.invoiceNumber} arrived ${invoiceWhen(top, ctx.today)}, ${formatMoney(top.totalMinor, ctx.money)}. It's ${describeInvoiceState(top, state)}.`,
+        `Yes, the ${who(top)} invoice arrived ${invoiceWhen(top, ctx.today)}. It's ${state === 'synced' ? 'posted' : state === 'mapped' ? 'matched, not posted yet' : 'waiting to be matched'}.`
       ]);
     } else if (query) {
       const latest = recent[0];
@@ -455,7 +457,7 @@ export const getInvoiceStatus = defineTool({
     } else {
       const short = (inv: InvoiceRow) => {
         const s = invoiceState(inv);
-        return `${who(inv)} ${invoiceWhen(inv, ctx.today)}, ${s === 'synced' ? 'synced' : s === 'mapped' ? 'matched, not synced' : 'needs matching'}`;
+        return `${who(inv)} ${invoiceWhen(inv, ctx.today)}, ${s === 'synced' ? 'posted' : s === 'mapped' ? 'matched, not posted' : 'needs matching'}`;
       };
       speech = fitSpeech([
         `Latest invoices: ${speakList(picked.map(short))}.`,
@@ -473,7 +475,7 @@ interface SupplierPlan {
   supplierName: string;
   leadTimeDays: number;
   lines: { row: StockRow; qty: number }[];
-  totalVnd: number;
+  totalMinor: number;
 }
 
 async function planBySupplier(ctx: ToolContext, lines: { row: StockRow; qty: number }[]): Promise<SupplierPlan[]> {
@@ -488,13 +490,13 @@ async function planBySupplier(ctx: ToolContext, lines: { row: StockRow; qty: num
       supplierName: supplier?.name ?? 'an unassigned supplier',
       leadTimeDays: supplier?.leadTimeDays ?? line.row.leadTimeDays,
       lines: [],
-      totalVnd: 0
+      totalMinor: 0
     };
     plan.lines.push(line);
-    plan.totalVnd += line.qty * line.row.unitCostVnd;
+    plan.totalMinor += line.qty * line.row.unitCostMinor;
     plans.set(code, plan);
   }
-  return [...plans.values()].sort((a, b) => b.totalVnd - a.totalVnd);
+  return [...plans.values()].sort((a, b) => b.totalMinor - a.totalMinor);
 }
 
 function supplierMatches(plan: SupplierPlan, query: string): boolean {
@@ -512,7 +514,7 @@ const reorderLineSchema = z.object({
   days_of_cover: z.number().nullable(),
   suggested_qty: z.number(),
   pack_size: z.number(),
-  line_cost_vnd: z.number()
+  line_cost_minor: z.number()
 });
 
 function planOut(ctx: ToolContext, plan: SupplierPlan) {
@@ -529,10 +531,10 @@ function planOut(ctx: ToolContext, plan: SupplierPlan) {
       days_of_cover: daysOfCover(row),
       suggested_qty: qty,
       pack_size: row.packSize,
-      line_cost_vnd: qty * row.unitCostVnd
+      line_cost_minor: qty * row.unitCostMinor
     })),
-    total_vnd: plan.totalVnd,
-    total: vndToDisplay(plan.totalVnd, ctx.money)
+    total_minor: plan.totalMinor,
+    total: minorToDisplay(plan.totalMinor, ctx.money)
   };
 }
 
@@ -550,14 +552,14 @@ export const suggestReorder = defineTool({
   output: {
     item_count: z.number().int(),
     ...moneyOut,
-    total_vnd: z.number(),
+    total_minor: z.number(),
     total: z.number(),
     suppliers: z.array(z.object({
       supplier_code: z.string(),
       supplier_name: z.string(),
       lead_time_days: z.number(),
       lines: z.array(reorderLineSchema),
-      total_vnd: z.number(),
+      total_minor: z.number(),
       total: z.number()
     }))
   },
@@ -567,8 +569,8 @@ export const suggestReorder = defineTool({
     let plans = await planBySupplier(ctx, stock.filter(needsReorder).sort(byUrgency).map((row) => ({ row, qty: suggestedOrderQty(row) })));
     if (args.supplier) plans = plans.filter((p) => supplierMatches(p, args.supplier ?? ''));
     const itemCount = plans.reduce((n, p) => n + p.lines.length, 0);
-    const totalVnd = plans.reduce((n, p) => n + p.totalVnd, 0);
-    const total = formatMoney(totalVnd, ctx.money);
+    const totalMinor = plans.reduce((n, p) => n + p.totalMinor, 0);
+    const total = formatMoney(totalMinor, ctx.money);
     const speech = itemCount === 0
       ? `Nothing needs reordering${args.supplier ? ` from ${args.supplier}` : ''} right now.`
       : fitSpeech([
@@ -580,8 +582,8 @@ export const suggestReorder = defineTool({
       data: {
         item_count: itemCount,
         currency: ctx.money.currency,
-        total_vnd: totalVnd,
-        total: vndToDisplay(totalVnd, ctx.money),
+        total_minor: totalMinor,
+        total: minorToDisplay(totalMinor, ctx.money),
         suppliers: plans.map((p) => planOut(ctx, p))
       }
     };
@@ -601,7 +603,7 @@ const draftOutSchema = z.object({
   supplier_code: z.string(),
   supplier_name: z.string(),
   lines: z.array(z.object({ sku: z.string(), name: z.string(), unit: z.string().nullable(), qty: z.number() })),
-  total_vnd: z.number(),
+  total_minor: z.number(),
   total: z.number()
 });
 
@@ -622,7 +624,7 @@ export const createReorderDraft = defineTool({
     expires_at: z.string().nullable(),
     expires_in_seconds: z.number().int(),
     ...moneyOut,
-    total_vnd: z.number(),
+    total_minor: z.number(),
     total: z.number(),
     drafts: z.array(draftOutSchema),
     clarifications: z.array(z.object({ query: z.string(), status: z.enum(['ambiguous', 'not_found']), candidates: z.array(productRef) }))
@@ -630,7 +632,7 @@ export const createReorderDraft = defineTool({
   annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
   async run(ctx, args) {
     const stock = await ctx.repo.listStock();
-    const empty = { confirmation_token: null, expires_at: null, expires_in_seconds: 0, currency: ctx.money.currency, total_vnd: 0, total: 0, drafts: [] };
+    const empty = { confirmation_token: null, expires_at: null, expires_in_seconds: 0, currency: ctx.money.currency, total_minor: 0, total: 0, drafts: [] };
     let lines: { row: StockRow; qty: number }[] = [];
 
     if (args.items && args.items.length > 0) {
@@ -666,22 +668,22 @@ export const createReorderDraft = defineTool({
     const token = generateConfirmationToken();
     const newDrafts: NewDraft[] = plans.map((p) => ({
       supplierCode: p.supplierCode,
-      totalVnd: p.totalVnd,
-      lines: p.lines.map(({ row, qty }): DraftLine => ({ sku: row.sku, name: row.name, unit: row.unit, qty, unitCostVnd: row.unitCostVnd }))
+      totalMinor: p.totalMinor,
+      lines: p.lines.map(({ row, qty }): DraftLine => ({ sku: row.sku, name: row.name, unit: row.unit, qty, unitCostMinor: row.unitCostMinor }))
     }));
     const { ids, expiresAt } = await ctx.repo.createDrafts(newDrafts, hashConfirmationToken(token), ctx.confirmTtlSeconds);
-    const totalVnd = plans.reduce((n, p) => n + p.totalVnd, 0);
+    const totalMinor = plans.reduce((n, p) => n + p.totalMinor, 0);
     const minutes = Math.round(ctx.confirmTtlSeconds / 60);
     const lineText = (p: SupplierPlan) => joinList(p.lines.map((l) => `${formatQty(l.qty, l.row.unit)} of ${l.row.name}`));
     const onlyPlan = plans[0];
     const speech = plans.length === 1 && onlyPlan
       ? fitSpeech([
-        `Draft ready: ${lineText(onlyPlan)} from ${onlyPlan.supplierName}, about ${formatMoney(totalVnd, ctx.money)}. Say "confirm" within ${minutes} minutes to place it.`,
-        `Draft ready for ${onlyPlan.supplierName}: ${onlyPlan.lines.length} items, about ${formatMoney(totalVnd, ctx.money)}. Say "confirm" within ${minutes} minutes to place it.`
+        `Draft ready: ${lineText(onlyPlan)} from ${onlyPlan.supplierName}, about ${formatMoney(totalMinor, ctx.money)}. Say "confirm" within ${minutes} minutes to place it.`,
+        `Draft ready for ${onlyPlan.supplierName}: ${onlyPlan.lines.length} items, about ${formatMoney(totalMinor, ctx.money)}. Say "confirm" within ${minutes} minutes to place it.`
       ])
       : fitSpeech([
-        `Drafted ${countWord(plans.length)} orders, about ${formatMoney(totalVnd, ctx.money)}: ${speakList(summarizePlans(plans), 2)}. Say "confirm" within ${minutes} minutes to place them.`,
-        `Drafted ${countWord(plans.length)} orders for ${lines.length} items, about ${formatMoney(totalVnd, ctx.money)}. Say "confirm" within ${minutes} minutes to place them.`
+        `Drafted ${countWord(plans.length)} orders, about ${formatMoney(totalMinor, ctx.money)}: ${speakList(summarizePlans(plans), 2)}. Say "confirm" within ${minutes} minutes to place them.`,
+        `Drafted ${countWord(plans.length)} orders for ${lines.length} items, about ${formatMoney(totalMinor, ctx.money)}. Say "confirm" within ${minutes} minutes to place them.`
       ]);
 
     return {
@@ -692,15 +694,15 @@ export const createReorderDraft = defineTool({
         expires_at: expiresAt,
         expires_in_seconds: ctx.confirmTtlSeconds,
         currency: ctx.money.currency,
-        total_vnd: totalVnd,
-        total: vndToDisplay(totalVnd, ctx.money),
+        total_minor: totalMinor,
+        total: minorToDisplay(totalMinor, ctx.money),
         drafts: plans.map((p, i) => ({
           draft_id: ids[i] ?? '',
           supplier_code: p.supplierCode,
           supplier_name: p.supplierName,
           lines: p.lines.map(({ row, qty }) => ({ sku: row.sku, name: row.name, unit: row.unit, qty })),
-          total_vnd: p.totalVnd,
-          total: vndToDisplay(p.totalVnd, ctx.money)
+          total_minor: p.totalMinor,
+          total: minorToDisplay(p.totalMinor, ctx.money)
         })),
         clarifications: []
       }
@@ -719,7 +721,7 @@ export const confirmReorder = defineTool({
     status: z.enum(['confirmed', 'already_confirmed', 'expired', 'not_found']),
     confirmed_count: z.number().int(),
     ...moneyOut,
-    total_vnd: z.number(),
+    total_minor: z.number(),
     total: z.number(),
     drafts: z.array(z.object({ draft_id: z.string(), supplier_code: z.string(), supplier_name: z.string(), status: z.string(), total: z.number() }))
   },
@@ -728,11 +730,11 @@ export const confirmReorder = defineTool({
   async run(ctx, args) {
     const drafts = await ctx.repo.findDraftsByTokenHash(hashConfirmationToken(args.confirmation_token));
     const suppliers = new Map((await ctx.repo.listSuppliers()).map((s) => [s.code, s.name]));
-    const totalVnd = drafts.reduce((n, d) => n + d.totalVnd, 0);
-    const base = { currency: ctx.money.currency, total_vnd: totalVnd, total: vndToDisplay(totalVnd, ctx.money) };
+    const totalMinor = drafts.reduce((n, d) => n + d.totalMinor, 0);
+    const base = { currency: ctx.money.currency, total_minor: totalMinor, total: minorToDisplay(totalMinor, ctx.money) };
     const out = (status: string) => drafts.map((d) => ({
       draft_id: d.id, supplier_code: d.supplierCode, supplier_name: suppliers.get(d.supplierCode) ?? d.supplierCode,
-      status: d.status === 'draft' ? status : d.status, total: vndToDisplay(d.totalVnd, ctx.money)
+      status: d.status === 'draft' ? status : d.status, total: minorToDisplay(d.totalMinor, ctx.money)
     }));
 
     if (drafts.length === 0) {
@@ -749,8 +751,8 @@ export const confirmReorder = defineTool({
     const names = [...new Set(pending.map((d) => suppliers.get(d.supplierCode) ?? d.supplierCode))];
     const itemCount = pending.reduce((n, d) => n + d.lines.length, 0);
     const speech = fitSpeech([
-      `Done. ${count === 1 ? 'Your order' : `${countWord(count, true)} orders`} to ${joinList(names)} ${count === 1 ? 'is' : 'are'} confirmed: ${itemCount} ${itemCount === 1 ? 'item' : 'items'}, about ${formatMoney(totalVnd, ctx.money)}.`,
-      `Done. ${countWord(count, true)} ${count === 1 ? 'order' : 'orders'} confirmed, about ${formatMoney(totalVnd, ctx.money)}.`
+      `Done. ${count === 1 ? 'Your order' : `${countWord(count, true)} orders`} to ${joinList(names)} ${count === 1 ? 'is' : 'are'} confirmed: ${itemCount} ${itemCount === 1 ? 'item' : 'items'}, about ${formatMoney(totalMinor, ctx.money)}.`,
+      `Done. ${countWord(count, true)} ${count === 1 ? 'order' : 'orders'} confirmed, about ${formatMoney(totalMinor, ctx.money)}.`
     ]);
     return { speech, data: { status: 'confirmed' as const, confirmed_count: count, ...base, drafts: out('confirmed') } };
   }
@@ -759,7 +761,7 @@ export const confirmReorder = defineTool({
 export const getDailyBriefing = defineTool({
   name: 'get_daily_briefing',
   title: 'Morning briefing',
-  description: "Three-sentence start-of-day summary: yesterday's sales vs the same weekday last week, how many products are below minimum stock, and supplier invoices not yet synced to the point-of-sale system.",
+  description: "Three-sentence start-of-day summary: yesterday's sales vs the same weekday last week, how many products are below minimum stock, and supplier invoices not yet posted to inventory.",
   input: {},
   output: {
     ...moneyOut,
@@ -781,15 +783,15 @@ export const getDailyBriefing = defineTool({
     ];
     const low = stock.filter(isLowStock).sort(byUrgency);
     const pendingSync = invoices.filter((inv) => !inv.synced).length;
-    const pct = prev ? percentChange(sales.revenueVnd, prev.revenueVnd) : null;
-    const s1 = `Yesterday you sold ${formatMoney(sales.revenueVnd, ctx.money)}, ${describeChange(pct)} on ${cmp?.label ?? 'last week'}.`;
+    const pct = prev ? percentChange(sales.revenueMinor, prev.revenueMinor) : null;
+    const s1 = `Yesterday you sold ${formatMoney(sales.revenueMinor, ctx.money)}, ${describeChange(pct)} on ${cmp?.label ?? 'last week'}.`;
     const s2 = low.length === 0 ? 'Nothing is running low.' : `${low.length === 1 ? 'One item is' : `${countWord(low.length, true)} items are`} running low, most urgently ${low[0]?.name}.`;
-    const s3 = pendingSync === 0 ? 'All supplier invoices are synced.' : `${countWord(pendingSync, true)} supplier ${pendingSync === 1 ? 'invoice is' : 'invoices are'} not synced yet.`;
+    const s3 = pendingSync === 0 ? 'All supplier invoices are posted.' : `${countWord(pendingSync, true)} supplier ${pendingSync === 1 ? 'invoice is' : 'invoices are'} not posted yet.`;
     return {
       speech: fitSpeech([`${s1} ${s2} ${s3}`, `${s1} ${s2}`]),
       data: {
         currency: ctx.money.currency,
-        yesterday_revenue: vndToDisplay(sales.revenueVnd, ctx.money),
+        yesterday_revenue: minorToDisplay(sales.revenueMinor, ctx.money),
         yesterday_change_pct: pct,
         low_stock_count: low.length,
         most_urgent: low[0]?.name ?? null,

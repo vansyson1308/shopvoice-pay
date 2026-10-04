@@ -160,7 +160,7 @@ test('full flow (DCR + Claude callback): signup provisions a sandbox shop, code 
     assert.equal(redirect.searchParams.get('iss'), BASE, 'RFC 9207 iss');
     assert.match(code, /^svac_/);
     assert.match(consentHtml, /claude\.ai/, 'consent shows the redirect host');
-    assert.match(consentHtml, /Demo shop \(sample data\)/);
+    assert.match(consentHtml, /Your demo shop \(sample data\)/);
 
     const { res, json } = await tokenRequest(srv, { grant_type: 'authorization_code', code, redirect_uri: CLAUDE_CALLBACK, client_id: clientId, code_verifier: verifier, resource: RESOURCE });
     assert.equal(res.status, 200);
@@ -178,7 +178,7 @@ test('full flow (DCR + Claude callback): signup provisions a sandbox shop, code 
     assert.equal(low.json.result.isError, undefined);
     assert.ok(low.json.result.structuredContent.total_low > 0, 'sandbox shop is populated');
     const profile = await mcpPost(srv, { jsonrpc: '2.0', id: 9, method: 'resources/read', params: { uri: 'shop://profile' } }, { token: json.access_token, session: s.session });
-    assert.match(JSON.parse((await profile.json()).result.contents[0].text).shop_name, /Demo shop \(sample data\)/);
+    assert.match(JSON.parse((await profile.json()).result.contents[0].text).shop_name, /Your demo shop \(sample data\)/);
   } finally {
     await srv.close();
   }
@@ -525,7 +525,7 @@ test('account page: lists connected apps, revokes one, links a real shop with an
     assert.equal(page.status, 200);
     assert.match(html, /Claude/);
     assert.match(html, /claude\.ai/);
-    assert.match(html, /Demo shop \(sample data\)/);
+    assert.match(html, /Your demo shop \(sample data\)/);
 
     const post = async (fields) => jar.absorb(await fetch(`${srv.url}/account`, {
       method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded', cookie: jar.header() },
@@ -554,7 +554,7 @@ test('account page: lists connected apps, revokes one, links a real shop with an
   }
 });
 
-test('Vietnamese sign-up gets a VND sample shop and a Vietnamese UI', async () => {
+test('Vietnamese UI sign-up still gets the USD sample shop (the demo is US-only)', async () => {
   const srv = await startOAuthServer();
   try {
     const clientId = await dcrClient(srv);
@@ -565,8 +565,9 @@ test('Vietnamese sign-up gets a VND sample shop and a Vietnamese UI', async () =
     const s = await mcpSession(srv, t.access_token);
     const res = await mcpPost(srv, { jsonrpc: '2.0', id: 3, method: 'resources/read', params: { uri: 'shop://profile' } }, { token: t.access_token, session: s.session });
     const profile = JSON.parse((await res.json()).result.contents[0].text);
-    assert.equal(profile.display_currency, 'VND');
-    assert.match(profile.shop_name, /dữ liệu mẫu/);
+    assert.equal(profile.display_currency, 'USD');
+    assert.equal(profile.timezone, 'America/New_York');
+    assert.match(profile.shop_name, /Your demo shop \(sample data\)/);
   } finally {
     await srv.close();
   }

@@ -15,10 +15,10 @@ import { PgOAuthStore } from './oauth/pg-store.js';
 const logger = createLogger({ service: 'mcp-server', level: (process.env.LOG_LEVEL ?? 'info') as LogLevel });
 
 interface DemoSeedModule {
-  buildDemoDataset(opts: { anchorDate?: string; tokens: Record<string, string> }): MemoryDataset;
-  buildSandboxCatalogue(): unknown;
-  buildSandboxTenantData(locale: Locale, anchorDate?: string): MemoryTenantData;
-  SANDBOX_PROFILES: Record<Locale, { shop_name: string }>;
+  buildDemoDataset(opts: { anchorDate?: string; tokens: Record<string, string>; env?: Record<string, string | undefined> }): MemoryDataset;
+  buildSandboxCatalogue(env?: Record<string, string | undefined>): unknown;
+  buildSandboxTenantData(locale: Locale, anchorDate?: string, env?: Record<string, string | undefined>): MemoryTenantData;
+  SANDBOX_PROFILES: { en: { shop_name: string } };
   DEMO_TENANT_ID: string;
 }
 
@@ -43,7 +43,7 @@ async function createStores(): Promise<{ store: ShopStore; oauthStore: OAuthStor
       ? new MemoryOAuthStore({
         provision: (tenantId, locale) => {
           store.addTenant(tenantId, seed.buildSandboxTenantData(locale, process.env.DEMO_ANCHOR_DATE || undefined));
-          return seed.SANDBOX_PROFILES[locale].shop_name;
+          return seed.SANDBOX_PROFILES.en.shop_name;
         },
         remove: (tenantId) => store.removeTenant(tenantId)
       })
@@ -56,7 +56,7 @@ async function createStores(): Promise<{ store: ShopStore; oauthStore: OAuthStor
     statementTimeoutMs: Number(process.env.DB_STATEMENT_TIMEOUT_MS ?? '5000')
   });
   const oauthStore = oauthEnabled
-    ? new PgOAuthStore(pool, { catalogue: (await loadSeed()).buildSandboxCatalogue(), invitePepperB64: config.invitePepperB64 })
+    ? new PgOAuthStore(pool, { catalogue: (await loadSeed()).buildSandboxCatalogue(process.env), invitePepperB64: config.invitePepperB64 })
     : null;
   return { store: new PgShopStore(pool), oauthStore };
 }

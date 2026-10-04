@@ -54,34 +54,24 @@ export function formatQty(qty: number, unit: string | null | undefined): string 
 
 export interface MoneyFormat {
   readonly currency: string;
-  readonly vndPerUnit: number;
+  /** Minor units per whole unit of the currency (100 for USD cents). */
+  readonly minorPerUnit: number;
 }
 
-export function vndToDisplay(vnd: number, money: MoneyFormat): number {
-  return Math.round((vnd / money.vndPerUnit) * 100) / 100;
+/** Integer minor units -> decimal amount in the shop currency (8400 -> 84). */
+export function minorToDisplay(minor: number, money: MoneyFormat): number {
+  return Math.round((minor / money.minorPerUnit) * 100) / 100;
 }
 
-/** Spoken money in the shop's display currency: "$1,240", "$42", "2.4 million dong". */
-export function formatMoney(vnd: number, money: MoneyFormat): string {
-  if (money.currency === 'VND') {
-    const abs = Math.abs(vnd);
-    if (abs >= 1_000_000_000) return `${roundTo(vnd / 1_000_000_000, 1)} billion dong`;
-    if (abs >= 1_000_000) return `${roundTo(vnd / 1_000_000, 1)} million dong`;
-    if (abs >= 1_000) return `${Math.round(vnd / 1_000)} thousand dong`;
-    return `${Math.round(vnd)} dong`;
-  }
-  const amount = vnd / money.vndPerUnit;
+/** Spoken money in the shop currency: "$1,240", "$42", "$8.50". Amounts of 10 or more are rounded to whole units. */
+export function formatMoney(minor: number, money: MoneyFormat): string {
+  const amount = minor / money.minorPerUnit;
   const symbol = money.currency === 'USD' ? '$' : money.currency === 'EUR' ? '€' : '';
   const suffix = symbol ? '' : ` ${money.currency}`;
   const text = Math.abs(amount) >= 10 ? formatNumber(amount) : amount.toFixed(2);
   return `${symbol}${text}${suffix}`;
 }
 
-function roundTo(value: number, digits: number): string {
-  const factor = 10 ** digits;
-  const rounded = Math.round(value * factor) / factor;
-  return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(digits);
-}
 
 /** "a, b and c" */
 export function joinList(items: readonly string[]): string {
