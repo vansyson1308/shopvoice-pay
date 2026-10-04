@@ -56,6 +56,9 @@ jobs:
           PAYPAL_MODE: mock
         run: npm test
 
+      - name: Policy engine coverage gate (>= 95% branches)
+        run: npm run test:coverage:policy
+
       - name: Install PostgreSQL client
         run: sudo apt-get update && sudo apt-get install -y postgresql-client
 
