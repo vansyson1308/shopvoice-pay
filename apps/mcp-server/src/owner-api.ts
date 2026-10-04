@@ -26,8 +26,8 @@ export interface OwnerApiDeps {
   readonly store: ShopStore;
   readonly payments: PaymentsSetup;
   readonly logger: Logger;
-  /** Re-seeds a demo shop to its starting state (memory or Postgres); absent = not offered. */
-  readonly resetDemo?: (tenantId: string) => Promise<void>;
+  /** Re-seeds a sample shop to its starting state; false for a real shop. Absent = not offered. */
+  readonly resetDemo?: (tenantId: string) => Promise<boolean>;
 }
 
 export const MOCK_WEBHOOK_ID = 'MOCKWEBHOOK0001';
@@ -333,7 +333,7 @@ export function createOwnerApi(deps: OwnerApiDeps) {
     }
     if (method === 'POST' && path === '/demo/reset') {
       if (!deps.resetDemo) throw new HttpError(404, 'not_found', 'Demo reset is not available here');
-      await deps.resetDemo(tenantId);
+      if (!(await deps.resetDemo(tenantId))) throw new HttpError(409, 'not_a_sample_shop', 'Only sample shops can be reset');
       return { status: 200, body: { reset: true } };
     }
     throw new HttpError(404, 'not_found', 'No such owner API route');

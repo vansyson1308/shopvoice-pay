@@ -13,6 +13,8 @@ import type { Locale, OAuthStore } from './oauth/store.js';
 import { PgOAuthStore } from './oauth/pg-store.js';
 import { connectMockPayPal, loadPaymentsSetup } from './payments-setup.js';
 import { createOwnerApi } from './owner-api.js';
+import { MemoryDemoShops, PgDemoShops } from './demo-shops.js';
+import type { DemoShops } from './demo-shops.js';
 import type { PaymentsSetup } from './payments-setup.js';
 
 const logger = createLogger({ service: 'mcp-server', level: (process.env.LOG_LEVEL ?? 'info') as LogLevel });
@@ -30,7 +32,7 @@ async function loadSeed(): Promise<DemoSeedModule> {
   return (await import(seedUrl.href)) as DemoSeedModule;
 }
 
-async function createStores(payments: PaymentsSetup): Promise<{ store: ShopStore; oauthStore: OAuthStore | null }> {
+async function createStores(payments: PaymentsSetup): Promise<{ store: ShopStore; oauthStore: OAuthStore | null; demoShops: DemoShops }> {
   const config = loadMcpServerConfig(process.env);
   const oauthEnabled = !!config.publicBaseUrl;
   if (config.dataBackend === 'memory') {
@@ -53,28 +55,33 @@ async function createStores(payments: PaymentsSetup): Promise<{ store: ShopStore
       })
       : null;
     if (await connectMockPayPal(payments, store, seed.DEMO_TENANT_ID)) logger.info('mock_paypal_connected', { tenant_id: seed.DEMO_TENANT_ID });
-    return { store, oauthStore };
+    const anchor = process.env.DEMO_ANCHOR_DATE || undefined;
+    const sample = (tenantId: string) => (tenantId === seed.DEMO_TENANT_ID
+      ? seed.buildDemoDataset({ ...(anchor ? { anchorDate: anchor } : {}), tokens: {} }).tenants[seed.DEMO_TENANT_ID] as MemoryTenantData
+      : seed.buildSandboxTenantData('en', anchor));
+    const demoShops = new MemoryDemoShops(store, sample, payments, new Set([seed.DEMO_TENANT_ID]));
+    return { store, oauthStore, demoShops };
   }
   const pool = await createPgPool({
     connectionString: config.databaseUrl,
     applicationName: 'mcp-server',
     statementTimeoutMs: Number(process.env.DB_STATEMENT_TIMEOUT_MS ?? '5000')
   });
-  const oauthStore = oauthEnabled
-    ? new PgOAuthStore(pool, { catalogue: (await loadSeed()).buildSandboxCatalogue(process.env), invitePepperB64: config.invitePepperB64 })
-    : null;
-  const store = new PgShopStore(pool);
   const seed = await loadSeed();
+  const catalogue = seed.buildSandboxCatalogue(process.env);
+  const oauthStore = oauthEnabled ? new PgOAuthStore(pool, { catalogue, invitePepperB64: config.invitePepperB64 }) : null;
+  const store = new PgShopStore(pool);
   if (await connectMockPayPal(payments, store, seed.DEMO_TENANT_ID).catch(() => false)) logger.info('mock_paypal_connected', { tenant_id: seed.DEMO_TENANT_ID });
-  return { store, oauthStore };
+  const demoShops = new PgDemoShops(pool, JSON.stringify(catalogue), payments, (tenantId) => connectMockPayPal(payments, store, tenantId));
+  return { store, oauthStore, demoShops };
 }
 
 async function main(): Promise<void> {
   const config = loadMcpServerConfig(process.env);
   const payments = loadPaymentsSetup(process.env, logger);
-  const { store, oauthStore } = await createStores(payments);
-  const owner = createOwnerApi({ store, payments, logger });
-  const deps: McpHttpDeps = { store, config, logger, payments: payments.service, owner, ...(oauthStore ? { oauth: { store: oauthStore } } : {}) };
+  const { store, oauthStore, demoShops } = await createStores(payments);
+  const owner = createOwnerApi({ store, payments, logger, resetDemo: (tenantId) => demoShops.reset(tenantId) });
+  const deps: McpHttpDeps = { store, config, logger, payments: payments.service, owner, demoShops, ...(oauthStore ? { oauth: { store: oauthStore } } : {}) };
   const handler = createMcpHttpHandler(deps);
   const server = createServer((req, res) => {
     void handler.handle(req, res);
@@ -89,6 +96,12 @@ async function main(): Promise<void> {
       .catch((error: unknown) => logger.warn('oauth_cleanup_failed', { error: error instanceof Error ? error.message : 'unknown' }));
   }, 6 * 3600_000);
   housekeeping.unref();
+  const visitorCleanup = setInterval(() => {
+    demoShops.cleanup(Number.parseInt(process.env.DEMO_SHOP_IDLE_DAYS ?? '3', 10) || 3)
+      .then((removed) => { if (removed > 0) logger.info('demo_shops_cleanup', { removed }); })
+      .catch((error: unknown) => logger.warn('demo_shops_cleanup_failed', { error: error instanceof Error ? error.message : 'unknown' }));
+  }, 6 * 3600_000);
+  visitorCleanup.unref();
 
   server.listen(config.port, config.host, () => {
     logger.info('mcp_server_listening', {

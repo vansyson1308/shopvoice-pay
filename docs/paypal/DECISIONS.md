@@ -148,3 +148,17 @@ Database role names inside migrations 001–018 (`groceryclaw_app_runtime`, …)
 Money state is never taken from the webhook payload, so a forged or replayed event cannot move it (tested).
 
 **Simulated PayPal (mock mode only).** With `PAYPAL_MODE=mock`, approval links point at the console's `/sim/paypal/*` page. Its banner says it is simulated and that no money moves. It redirects back only within the console. With `PAYPAL_MODE=sandbox`, the same links go to sandbox.paypal.com.
+
+## D12. "Try the demo" gives each visitor a private sample shop (2026-10-05)
+
+**Decision.** With `DEMO_PROVISION_SECRET` set, the hosted console creates a private sample shop for each visitor who clicks "Try the demo". The shop has the same seeded catalogue, rules, suppliers and history as the demo shop, plus (in mock mode) a simulated saved PayPal account.
+- The console keeps the shop's MCP credential server-side. The browser holds only an HttpOnly, SameSite=Lax session cookie.
+- "Reset demo" re-seeds that shop.
+- Visitor shops idle for 3 days are removed.
+
+**Why.** Judges will use the hosted demo at the same time. With one shared shop, one judge's approval card, ledger rows and spending changes would show up in another judge's console.
+
+**Guards.**
+- Shops are created only server-to-server, with the shared secret. There is a global cap (about 120 per hour) on the MCP server, and the console allows 3 per visitor IP in a burst, then 1 every 10 minutes.
+- In Postgres, creation, reset and cleanup are SECURITY DEFINER functions (migration 023) that act on sample shops only: `sandbox_reset` returns false for a real shop, and cleanup deletes only `kind = 'visitor'` shops.
+- Without the secret, the console serves the single shop behind `SIM_MCP_TOKEN`, as before.
