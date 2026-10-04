@@ -8,7 +8,7 @@ import type { SpendPolicy } from '../policy/policy-engine.js';
 import type { PriceObservation } from '../policy/anomaly.js';
 import { applyAction, newPaymentState } from './state-machine.js';
 import type {
-  NewPayment, NewPaymentEvent, PaymentEventRecord, PaymentMethodStatus, PaymentPatch, PaymentRecord,
+  DeliveryRecord, NewPayment, NewPaymentEvent, PaymentEventRecord, PaymentMethodStatus, PaymentPatch, PaymentRecord,
   PaymentsRepository, StoredPaymentMethod, SupplierPayee
 } from './types.js';
 import type { LedgerAction } from './state-machine.js';
@@ -38,6 +38,7 @@ export class MemoryPaymentsData {
   readonly pastQuantities: Record<string, number[]>;
   readonly payments = new Map<string, PaymentRecord>();
   readonly events: PaymentEventRecord[] = [];
+  readonly deliveries: DeliveryRecord[] = [];
 
   constructor(seed: MemoryPaymentsSeed = {}) {
     this.policy = seed.policy ?? null;
@@ -142,6 +143,7 @@ export class MemoryPaymentsRepository implements PaymentsRepository {
       decision: input.decision,
       decisionReasons: input.decisionReasons,
       linesFingerprint: input.linesFingerprint,
+      lines: input.lines.map((l) => ({ ...l })),
       createdBy: input.createdBy,
       approvedBy: null,
       paypalOrderId: null,
@@ -204,5 +206,16 @@ export class MemoryPaymentsRepository implements PaymentsRepository {
 
   async listEvents(paymentId: string): Promise<PaymentEventRecord[]> {
     return this.data.events.filter((e) => e.paymentId === paymentId);
+  }
+
+  async recordDelivery(delivery: Omit<DeliveryRecord, 'id' | 'createdAt'>): Promise<DeliveryRecord> {
+    if (!this.data.payments.has(delivery.paymentId)) throw new LedgerConflictError('not_found', 'payment not found');
+    const row: DeliveryRecord = { ...delivery, receivedLines: delivery.receivedLines.map((l) => ({ ...l })), id: randomUUID(), createdAt: this.iso() };
+    this.data.deliveries.push(row);
+    return row;
+  }
+
+  async listDeliveries(paymentId: string): Promise<DeliveryRecord[]> {
+    return this.data.deliveries.filter((d) => d.paymentId === paymentId);
   }
 }

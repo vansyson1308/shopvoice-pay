@@ -3,7 +3,7 @@
 // implementation by tenant id. PayPal identifiers and the encrypted vault
 // payload live here and in the payments service only; MCP tool output never
 // carries them.
-import type { PolicyReason, SpendPolicy } from '../policy/policy-engine.js';
+import type { PolicyDraftLine, PolicyReason, SpendPolicy } from '../policy/policy-engine.js';
 import type { PriceObservation } from '../policy/anomaly.js';
 import type { LedgerAction, MoneyState, PaymentStatus } from './state-machine.js';
 import type { EnvelopeEncrypted } from '../../../../packages/common/dist/index.js';
@@ -42,6 +42,7 @@ export interface PaymentRecord extends MoneyState {
   readonly decision: PaymentDecision;
   readonly decisionReasons: readonly PolicyReason[];
   readonly linesFingerprint: string;
+  readonly lines: readonly PolicyDraftLine[];
   readonly createdBy: 'agent' | 'owner';
   readonly approvedBy: ApprovedBy | null;
   readonly paypalOrderId: string | null;
@@ -65,8 +66,29 @@ export interface NewPayment {
   readonly decision: PaymentDecision;
   readonly decisionReasons: readonly PolicyReason[];
   readonly linesFingerprint: string;
+  readonly lines: readonly PolicyDraftLine[];
   readonly createdBy: 'agent' | 'owner';
   readonly correlationId: string;
+}
+
+export type DeliveryOutcome = 'full' | 'partial' | 'hold' | 'none';
+
+export interface ReceivedLine {
+  readonly sku: string;
+  readonly orderedQty: number;
+  readonly receivedQty: number;
+  readonly unitCostMinor: number;
+}
+
+export interface DeliveryRecord {
+  readonly id: string;
+  readonly paymentId: string;
+  readonly source: 'voice' | 'invoice_photo' | 'console';
+  readonly receivedLines: readonly ReceivedLine[];
+  readonly outcome: DeliveryOutcome;
+  readonly deliveredValueMinor: number;
+  readonly currency: string;
+  readonly createdAt: string;
 }
 
 /** Non-money fields a transition may set. `null` clears a field. */
@@ -132,4 +154,7 @@ export interface PaymentsRepository {
    */
   record(id: string, change: { readonly action?: LedgerAction; readonly patch?: PaymentPatch; readonly event: NewPaymentEvent }): Promise<PaymentRecord>;
   listEvents(paymentId: string): Promise<PaymentEventRecord[]>;
+
+  recordDelivery(delivery: Omit<DeliveryRecord, 'id' | 'createdAt'>): Promise<DeliveryRecord>;
+  listDeliveries(paymentId: string): Promise<DeliveryRecord[]>;
 }

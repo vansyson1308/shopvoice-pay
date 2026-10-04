@@ -3,13 +3,13 @@
 // the current shop; `record` locks the payment row, applies the state machine
 // and appends the event in the same transaction. All SQL is parameterised.
 import type { EnvelopeEncrypted, PgClientLike } from '../../../../packages/common/dist/index.js';
-import type { PolicyReason, SpendPolicy } from '../policy/policy-engine.js';
+import type { PolicyDraftLine, PolicyReason, SpendPolicy } from '../policy/policy-engine.js';
 import type { PriceObservation } from '../policy/anomaly.js';
 import { applyAction } from './state-machine.js';
 import type { LedgerAction, PaymentStatus } from './state-machine.js';
 import { LedgerConflictError } from './memory-ledger.js';
 import type {
-  ApprovedBy, NewPayment, NewPaymentEvent, PaymentDecision, PaymentEventRecord, PaymentMethodStatus, PaymentPatch,
+  ApprovedBy, DeliveryOutcome, DeliveryRecord, NewPayment, ReceivedLine, NewPaymentEvent, PaymentDecision, PaymentEventRecord, PaymentMethodStatus, PaymentPatch,
   PaymentRecord, PaymentsRepository, StoredPaymentMethod, SupplierPayee, EventActor, EventKind
 } from './types.js';
 
@@ -23,7 +23,7 @@ const iso = (v: unknown): string => (v instanceof Date ? v.toISOString() : str(v
 const isoOrNull = (v: unknown): string | null => (v === null || v === undefined ? null : iso(v));
 const buf = (v: unknown): Buffer => (Buffer.isBuffer(v) ? v : Buffer.from(str(v)));
 
-const PAYMENT_COLUMNS = `id, draft_id, supplier_code, currency, status, decision, decision_reasons, lines_fingerprint, created_by,
+const PAYMENT_COLUMNS = `id, draft_id, supplier_code, currency, status, decision, decision_reasons, lines_fingerprint, lines, created_by,
   approved_by, amount_requested_minor, amount_authorized_minor, amount_captured_minor, amount_voided_minor,
   amount_refunded_minor, amount_settled_minor, paypal_order_id, paypal_authorization_id, paypal_capture_ids,
   authorization_expires_at, honor_period_ends_at, approval_token_hash, approval_expires_at, correlation_id,
@@ -39,6 +39,7 @@ function toPayment(r: Row): PaymentRecord {
     decision: str(r.decision) as PaymentDecision,
     decisionReasons: (Array.isArray(r.decision_reasons) ? r.decision_reasons : []) as PolicyReason[],
     linesFingerprint: str(r.lines_fingerprint),
+    lines: (Array.isArray(r.lines) ? r.lines : []) as PolicyDraftLine[],
     createdBy: str(r.created_by) as 'agent' | 'owner',
     approvedBy: strOrNull(r.approved_by) as ApprovedBy | null,
     requestedMinor: num(r.amount_requested_minor),
@@ -244,11 +245,11 @@ export class PgPaymentsRepository implements PaymentsRepository {
   async createPayment(input: NewPayment, event: NewPaymentEvent): Promise<PaymentRecord> {
     const { rows } = await this.client.query(
       `INSERT INTO supplier_payments (tenant_id, draft_id, supplier_code, currency, amount_requested_minor, status, decision,
-              decision_reasons, lines_fingerprint, created_by, correlation_id)
-       VALUES (_rls_tenant_id(), $1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10)
+              decision_reasons, lines_fingerprint, lines, created_by, correlation_id)
+       VALUES (_rls_tenant_id(), $1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9::jsonb, $10, $11)
        RETURNING ${PAYMENT_COLUMNS}`,
       [input.draftId, input.supplierCode, input.currency, input.requestedMinor, input.status, input.decision,
-        JSON.stringify(input.decisionReasons), input.linesFingerprint, input.createdBy, input.correlationId]
+        JSON.stringify(input.decisionReasons), input.linesFingerprint, JSON.stringify(input.lines), input.createdBy, input.correlationId]
     );
     const payment = toPayment(rows[0] as Row);
     await this.insertEvent(payment, event);
@@ -334,4 +335,36 @@ export class PgPaymentsRepository implements PaymentsRepository {
       createdAt: iso(r.created_at)
     }));
   }
+
+  async recordDelivery(d: Omit<DeliveryRecord, 'id' | 'createdAt'>): Promise<DeliveryRecord> {
+    const { rows } = await this.client.query(
+      `INSERT INTO deliveries (tenant_id, payment_id, source, received_lines, outcome, delivered_value_minor, currency)
+       VALUES (_rls_tenant_id(), $1, $2, $3::jsonb, $4, $5, $6)
+       RETURNING id, payment_id, source, received_lines, outcome, delivered_value_minor, currency, created_at`,
+      [d.paymentId, d.source, JSON.stringify(d.receivedLines), d.outcome, d.deliveredValueMinor, d.currency]
+    );
+    return toDelivery(rows[0] as Row);
+  }
+
+  async listDeliveries(paymentId: string): Promise<DeliveryRecord[]> {
+    const { rows } = await this.client.query(
+      `SELECT id, payment_id, source, received_lines, outcome, delivered_value_minor, currency, created_at
+         FROM deliveries WHERE tenant_id = _rls_tenant_id() AND payment_id = $1 ORDER BY created_at, id`,
+      [paymentId]
+    );
+    return rows.map(toDelivery);
+  }
+}
+
+function toDelivery(r: Row): DeliveryRecord {
+  return {
+    id: str(r.id),
+    paymentId: str(r.payment_id),
+    source: str(r.source) as DeliveryRecord['source'],
+    receivedLines: (Array.isArray(r.received_lines) ? r.received_lines : []) as ReceivedLine[],
+    outcome: str(r.outcome) as DeliveryOutcome,
+    deliveredValueMinor: num(r.delivered_value_minor),
+    currency: str(r.currency),
+    createdAt: iso(r.created_at)
+  };
 }

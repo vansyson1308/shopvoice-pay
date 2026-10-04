@@ -94,6 +94,9 @@ CREATE TABLE IF NOT EXISTS supplier_payments (
   decision TEXT NOT NULL CHECK (decision IN ('autopay', 'step_up', 'blocked')),
   decision_reasons JSONB NOT NULL DEFAULT '[]'::jsonb,
   lines_fingerprint TEXT NOT NULL,
+  -- The order lines as the policy saw them (sku, name, qty, unit_cost_minor), so an
+  -- approval re-checks the same order and a delivery can be valued line by line.
+  lines JSONB NOT NULL DEFAULT '[]'::jsonb CHECK (jsonb_typeof(lines) = 'array'),
   created_by TEXT NOT NULL CHECK (created_by IN ('agent', 'owner')),
   approved_by TEXT CHECK (approved_by IS NULL OR approved_by IN ('owner_voice', 'owner_tap', 'owner_paypal')),
   -- PayPal identifiers stay server-side; tools never return them to the model.

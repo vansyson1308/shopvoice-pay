@@ -26,6 +26,7 @@ export function newPayment(extra = {}) {
     decision: 'autopay',
     decisionReasons: [{ code: 'within_policy', effect: 'info', text: '$144 to Northside Dairy is within your rules.' }],
     linesFingerprint: 'SUP-DAIRY|MILK-1Gx12',
+    lines: [{ sku: 'MILK-1G', name: 'Whole milk, 1 gal', qty: 12, unitCostMinor: 1200 }],
     createdBy: 'agent',
     correlationId: 'corr-contract',
     ...extra
@@ -139,6 +140,21 @@ export function runLedgerContract(label, { withRepo, skip = false }) {
     assert.equal(approved.approvalTokenHash, null);
     assert.equal(approved.approvedBy, 'owner_voice');
     assert.equal(await withRepo((repo) => repo.findPaymentByApprovalHash(hash)), null);
+  });
+
+  t('order lines are stored with the payment; deliveries are recorded per payment', async () => {
+    const { id, lines } = await withRepo((repo) => repo.createPayment(newPayment(), event('policy_evaluated', 14_400)));
+    assert.deepEqual(lines, [{ sku: 'MILK-1G', name: 'Whole milk, 1 gal', qty: 12, unitCostMinor: 1200 }]);
+    assert.deepEqual((await withRepo((repo) => repo.getPayment(id))).lines, lines);
+    const delivery = await withRepo((repo) => repo.recordDelivery({
+      paymentId: id, source: 'voice', outcome: 'partial', deliveredValueMinor: 12_000, currency: 'USD',
+      receivedLines: [{ sku: 'MILK-1G', orderedQty: 12, receivedQty: 10, unitCostMinor: 1200 }]
+    }));
+    assert.equal(delivery.outcome, 'partial');
+    const listed = await withRepo((repo) => repo.listDeliveries(id));
+    assert.equal(listed.length, 1);
+    assert.deepEqual(listed[0].receivedLines, [{ sku: 'MILK-1G', orderedQty: 12, receivedQty: 10, unitCostMinor: 1200 }]);
+    await assert.rejects(withRepo((repo) => repo.recordDelivery({ paymentId: randomUUID(), source: 'voice', outcome: 'none', deliveredValueMinor: 0, currency: 'USD', receivedLines: [] })));
   });
 
   t('listPayments is newest first and filters by time', async () => {
