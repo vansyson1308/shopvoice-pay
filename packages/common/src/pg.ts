@@ -49,6 +49,18 @@ export function redactDbErrorMessage(message: string): string {
   return redactText(message);
 }
 
+/**
+ * Errors the application throws on purpose inside a transaction (subclasses
+ * of Error such as LedgerError) carry codes callers rely on and no
+ * credentials; they pass through. Driver errors (pg DatabaseError, plain
+ * Error from the socket layer) are redacted.
+ */
+export function isApplicationError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  if (Object.getPrototypeOf(error) === Error.prototype) return false;
+  return error.name !== 'DatabaseError' && !('severity' in error);
+}
+
 export function sanitizeDbError(error: unknown): Error {
   const message = error instanceof Error ? error.message : 'unknown_db_error';
   return new Error(redactDbErrorMessage(message));
@@ -135,7 +147,7 @@ export async function runTenantScopedTransaction<T>(opts: {
     } catch {
       // keep original error
     }
-    throw sanitizeDbError(error);
+    throw isApplicationError(error) ? (error as Error) : sanitizeDbError(error);
   } finally {
     client.release();
   }

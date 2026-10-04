@@ -1,12 +1,14 @@
 // Fails when a Postgres repository builds SQL by string interpolation.
-// Every query in a *pg-store.ts / pg-*.ts file must use $1-style parameters.
+// Every query in a *pg-store.ts / pg-*.ts / ledger/pg*.ts file must use
+// $1-style parameters. The one allowed interpolation is an UPPER_CASE constant
+// (a fixed column list such as ${PAYMENT_COLUMNS}); any other ${...} fails.
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
+import { findViolations } from './sql-guard-lib.mjs';
 
 const ROOTS = ['apps', 'packages'];
 const SKIP = new Set(['node_modules', 'dist', '.git']);
 const SQL_FILE = /(^|[-/])pg[-.].*\.ts$|pg-store\.ts$|ledger\/pg.*\.ts$/;
-const SQL_KEYWORD = /\b(SELECT|INSERT|UPDATE|DELETE|WITH|SET LOCAL)\b/;
 
 function walk(dir, out) {
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
@@ -26,13 +28,9 @@ for (const file of files) {
     console.error(`[sql-guard] ${file}: sqlQuote() is forbidden, use $n parameters`);
     failed = true;
   }
-  for (const match of text.matchAll(/`([^`]*)`/g)) {
-    const body = match[1] ?? '';
-    if (body.includes('${') && SQL_KEYWORD.test(body)) {
-      const line = text.slice(0, match.index).split('\n').length;
-      console.error(`[sql-guard] ${file}:${line}: interpolated SQL template literal`);
-      failed = true;
-    }
+  for (const line of findViolations(text)) {
+    console.error(`[sql-guard] ${file}:${line}: interpolated SQL template literal`);
+    failed = true;
   }
 }
 

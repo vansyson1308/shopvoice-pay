@@ -1,0 +1,151 @@
+// Shared contract for PaymentsRepository (not a test file itself). Run against
+// the memory implementation in tests/unit/ledger-repo.test.mjs and against
+// Postgres in tests/db/ledger-repo-db.test.mjs, so both behave identically.
+// `withRepo(fn)` must run fn in its own unit of work (a transaction for pg),
+// so a thrown error rolls that unit back.
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
+import { encryptPayload, decryptPayload } from '../../packages/common/dist/index.js';
+import { LedgerError, LedgerConflictError } from '../../apps/mcp-server/dist/ledger/index.js';
+import { DEFAULT_POLICY } from '../../apps/mcp-server/dist/policy/index.js';
+
+const MEK = Buffer.alloc(32, 7).toString('base64');
+
+export function event(kind, amountMinor, extra = {}) {
+  return { kind, amountMinor, actor: 'agent', reason: `${kind} test`, correlationId: 'corr-contract', ...extra };
+}
+
+export function newPayment(extra = {}) {
+  return {
+    draftId: null,
+    supplierCode: 'SUP-DAIRY',
+    currency: 'USD',
+    requestedMinor: 14_400,
+    status: 'pending_approval',
+    decision: 'autopay',
+    decisionReasons: [{ code: 'within_policy', effect: 'info', text: '$144 to Northside Dairy is within your rules.' }],
+    linesFingerprint: 'SUP-DAIRY|MILK-1Gx12',
+    createdBy: 'agent',
+    correlationId: 'corr-contract',
+    ...extra
+  };
+}
+
+export function runLedgerContract(label, { withRepo, skip = false }) {
+  const t = (name, fn) => test(`${label}: ${name}`, { skip }, fn);
+
+  t('spending policy round-trips, including disabled hard caps', async () => {
+    const policy = { ...DEFAULT_POLICY, dailyHardCapMinor: null, allowListedSupplierIds: ['SUP-DAIRY', 'SUP-EGGS'] };
+    await withRepo((repo) => repo.savePolicy(policy, 'owner'));
+    const loaded = await withRepo((repo) => repo.getPolicy());
+    assert.deepEqual(loaded, policy);
+    await withRepo((repo) => repo.savePolicy({ ...policy, perOrderAutopayMaxMinor: 12_000 }, 'owner'));
+    assert.equal((await withRepo((repo) => repo.getPolicy())).perOrderAutopayMaxMinor, 12_000);
+  });
+
+  t('payees upsert and list', async () => {
+    await withRepo((repo) => repo.upsertPayee({ supplierCode: 'SUP-DAIRY', paypalEmail: 'dairy@business.example.com', paypalMerchantId: null, currency: 'USD', verified: true }));
+    await withRepo((repo) => repo.upsertPayee({ supplierCode: 'SUP-NEW', paypalEmail: 'new@business.example.com', paypalMerchantId: null, currency: 'USD', verified: false }));
+    const payees = await withRepo((repo) => repo.listPayees());
+    assert.deepEqual(payees.map((p) => [p.supplierCode, p.verified]), [['SUP-DAIRY', true], ['SUP-NEW', false]]);
+    assert.equal((await withRepo((repo) => repo.getPayee('SUP-NEW'))).paypalEmail, 'new@business.example.com');
+    assert.equal(await withRepo((repo) => repo.getPayee('SUP-NONE')), null);
+  });
+
+  t('payment method: pending -> active with a sealed vault id; one active per shop', async () => {
+    const pending = await withRepo((repo) => repo.createPaymentMethod(encryptPayload(JSON.stringify({ setupTokenId: 'ST-1' }), MEK), ''));
+    assert.equal(pending.status, 'pending');
+    await withRepo((repo) => repo.updatePaymentMethod(pending.id, 'active', encryptPayload(JSON.stringify({ vaultId: 'VAULT-1' }), MEK), 'm***@personal.example.com'));
+    const active = await withRepo((repo) => repo.getActivePaymentMethod());
+    assert.equal(active.id, pending.id);
+    assert.equal(active.payerLabel, 'm***@personal.example.com');
+    assert.deepEqual(JSON.parse(decryptPayload(active.sealed, MEK)), { vaultId: 'VAULT-1' });
+    const second = await withRepo((repo) => repo.createPaymentMethod(encryptPayload('{}', MEK), ''));
+    await assert.rejects(withRepo((repo) => repo.updatePaymentMethod(second.id, 'active', null, null)), (e) => e instanceof LedgerConflictError && e.code === 'one_active_method');
+    await withRepo((repo) => repo.updatePaymentMethod(pending.id, 'revoked', null, null));
+    assert.equal(await withRepo((repo) => repo.getActivePaymentMethod()), null);
+    await assert.rejects(withRepo((repo) => repo.updatePaymentMethod(randomUUID(), 'revoked', null, null)), (e) => e.code === 'not_found');
+  });
+
+  t('price history is per supplier and windowed', async () => {
+    await withRepo(async (repo) => {
+      await repo.recordPrice('SUP-EGGS', 'EGGS-30', 1080, 'USD', '2026-09-10');
+      await repo.recordPrice('SUP-EGGS', 'EGGS-30', 1090, 'USD', '2026-09-20');
+      await repo.recordPrice('SUP-EGGS', 'EGGS-30', 1095, 'USD', '2026-09-20');
+      await repo.recordPrice('SUP-OTHER', 'EGGS-30', 9999, 'USD', '2026-09-20');
+    });
+    const history = await withRepo((repo) => repo.priceHistory('SUP-EGGS', ['EGGS-30', 'MILK-1G'], '2026-09-15'));
+    assert.deepEqual(history, { 'EGGS-30': [{ unitCostMinor: 1095, at: '2026-09-20T12:00:00Z' }] });
+  });
+
+  t('payment lifecycle: authorize, partial capture, void the rest, refund, settle; one event per step', async () => {
+    const created = await withRepo((repo) => repo.createPayment(newPayment(), event('policy_evaluated', 14_400)));
+    assert.equal(created.status, 'pending_approval');
+    assert.equal(created.decisionReasons[0].code, 'within_policy');
+    const id = created.id;
+    await withRepo((repo) => repo.record(id, {
+      action: { kind: 'authorize', amountMinor: 14_400 },
+      patch: { paypalOrderId: 'ORDER-1', paypalAuthorizationId: `AUTH-${id}`, authorizationExpiresAt: '2026-11-02T17:43:09.000Z', honorPeriodEndsAt: '2026-10-07T17:43:09.000Z' },
+      event: event('authorized', 14_400, { paypalRequestId: `req-auth-${id}`, paypalResourceId: `AUTH-${id}` })
+    }));
+    await withRepo((repo) => repo.record(id, { action: { kind: 'capture', amountMinor: 12_000, final: false }, patch: { addCaptureId: 'CAP-1' }, event: event('captured', 12_000, { paypalRequestId: `req-cap-${id}` }) }));
+    await withRepo((repo) => repo.record(id, { action: { kind: 'void' }, event: event('voided', 2400, { paypalRequestId: `req-void-${id}` }) }));
+    await withRepo((repo) => repo.record(id, { action: { kind: 'refund', amountMinor: 1200 }, event: event('refunded', 1200, { actor: 'owner', paypalRequestId: `req-ref-${id}` }) }));
+    const done = await withRepo((repo) => repo.record(id, { action: { kind: 'settle', amountMinor: 10_800 }, event: event('payout_sent', 10_800, { actor: 'system', paypalRequestId: `req-pay-${id}` }) }));
+    assert.deepEqual(
+      [done.status, done.authorizedMinor, done.capturedMinor, done.voidedMinor, done.refundedMinor, done.settledMinor],
+      ['partially_captured', 14_400, 12_000, 2400, 1200, 10_800]
+    );
+    assert.equal(done.paypalOrderId, 'ORDER-1');
+    assert.deepEqual(done.paypalCaptureIds, ['CAP-1']);
+    assert.equal(done.authorizationExpiresAt, '2026-11-02T17:43:09.000Z');
+    const events = await withRepo((repo) => repo.listEvents(id));
+    assert.deepEqual(events.map((e) => e.kind), ['policy_evaluated', 'authorized', 'captured', 'voided', 'refunded', 'payout_sent']);
+    assert.equal(events[4].actor, 'owner');
+    assert.equal(events[1].paypalResourceId, `AUTH-${id}`);
+    assert.equal((await withRepo((repo) => repo.findPaymentByAuthorizationId(`AUTH-${id}`))).id, id);
+  });
+
+  t('an illegal money move is rejected and leaves the payment and its events untouched', async () => {
+    const { id } = await withRepo((repo) => repo.createPayment(newPayment({ requestedMinor: 5000 }), event('policy_evaluated', 5000)));
+    await withRepo((repo) => repo.record(id, { action: { kind: 'authorize', amountMinor: 5000 }, event: event('authorized', 5000) }));
+    await assert.rejects(
+      withRepo((repo) => repo.record(id, { action: { kind: 'capture', amountMinor: 5001, final: true }, event: event('captured', 5001) })),
+      (e) => e instanceof LedgerError && e.code === 'over_capture'
+    );
+    const after = await withRepo((repo) => repo.getPayment(id));
+    assert.equal(after.status, 'authorized');
+    assert.equal(after.capturedMinor, 0);
+    assert.deepEqual((await withRepo((repo) => repo.listEvents(id))).map((e) => e.kind), ['policy_evaluated', 'authorized']);
+  });
+
+  t('the same PayPal-Request-Id cannot be recorded twice; the second write changes nothing', async () => {
+    const { id } = await withRepo((repo) => repo.createPayment(newPayment({ requestedMinor: 3000 }), event('policy_evaluated', 3000)));
+    await withRepo((repo) => repo.record(id, { action: { kind: 'authorize', amountMinor: 3000 }, event: event('authorized', 3000, { paypalRequestId: `dup-${id}` }) }));
+    await assert.rejects(
+      withRepo((repo) => repo.record(id, { action: { kind: 'void' }, event: event('voided', 3000, { paypalRequestId: `dup-${id}` }) })),
+      (e) => e instanceof LedgerConflictError && e.code === 'duplicate_request_id'
+    );
+    assert.equal((await withRepo((repo) => repo.getPayment(id))).status, 'authorized');
+  });
+
+  t('step-up approval token hash is set, found and cleared', async () => {
+    const hash = 'a'.repeat(63) + Math.floor(Math.random() * 10);
+    const { id } = await withRepo((repo) => repo.createPayment(newPayment({ decision: 'step_up' }), event('policy_evaluated', 14_400)));
+    await withRepo((repo) => repo.record(id, { patch: { approvalTokenHash: hash, approvalExpiresAt: '2026-10-05T00:05:00.000Z' }, event: event('approval_requested', 14_400) }));
+    assert.equal((await withRepo((repo) => repo.findPaymentByApprovalHash(hash))).id, id);
+    const approved = await withRepo((repo) => repo.record(id, { patch: { approvalTokenHash: null, approvalExpiresAt: null, approvedBy: 'owner_voice' }, event: event('approved', 14_400, { actor: 'owner' }) }));
+    assert.equal(approved.approvalTokenHash, null);
+    assert.equal(approved.approvedBy, 'owner_voice');
+    assert.equal(await withRepo((repo) => repo.findPaymentByApprovalHash(hash)), null);
+  });
+
+  t('listPayments is newest first and filters by time', async () => {
+    const all = await withRepo((repo) => repo.listPayments());
+    assert.ok(all.length >= 4);
+    for (let i = 1; i < all.length; i += 1) assert.ok(all[i - 1].createdAt >= all[i].createdAt);
+    assert.deepEqual(await withRepo((repo) => repo.listPayments({ sinceIso: '2999-01-01T00:00:00Z' })), []);
+    assert.equal((await withRepo((repo) => repo.listPayments({ limit: 1 }))).length, 1);
+  });
+}

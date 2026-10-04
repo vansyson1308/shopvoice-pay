@@ -9,6 +9,9 @@ import type {
 } from './store.js';
 import { ShopDataError } from './store.js';
 import { addDays } from './analytics.js';
+import { MemoryPaymentsData, MemoryPaymentsRepository } from './ledger/memory-ledger.js';
+import type { MemoryPaymentsSeed } from './ledger/memory-ledger.js';
+import type { PaymentsRepository } from './ledger/types.js';
 
 export interface MemoryProduct {
   readonly sku: string;
@@ -38,6 +41,8 @@ export interface MemoryTenantData {
   readonly sales: readonly MemorySale[];
   readonly suppliers: readonly Supplier[];
   readonly invoices: readonly InvoiceRow[];
+  /** Spending policy, payees and price history for ShopVoice Pay. */
+  readonly payments?: MemoryPaymentsSeed;
 }
 
 export interface MemoryDataset {
@@ -112,13 +117,18 @@ export function wordSimilarity(query: string, text: string): number {
 }
 
 class MemoryRepository implements ShopRepository {
+  readonly payments: PaymentsRepository;
+
   constructor(
     private readonly tenantId: string,
     private readonly data: MemoryTenantData,
     private readonly drafts: MutableDraft[],
     private readonly auditLog: (AuditEntry & { tenantId: string })[],
-    private readonly now: () => number
-  ) {}
+    private readonly now: () => number,
+    paymentsData: MemoryPaymentsData
+  ) {
+    this.payments = new MemoryPaymentsRepository(paymentsData, now);
+  }
 
   async getProfile(): Promise<ShopProfile> {
     return { tenantId: this.tenantId, ...this.data.profile };
@@ -236,6 +246,8 @@ class MemoryRepository implements ShopRepository {
 export class MemoryShopStore implements ShopStore {
   readonly drafts: MutableDraft[] = [];
   readonly auditLog: (AuditEntry & { tenantId: string })[] = [];
+  /** Per-tenant payments state, created from the tenant's seed on first use. */
+  readonly paymentsData = new Map<string, MemoryPaymentsData>();
   private readonly tokenHashes = new Map<string, string>();
 
   constructor(private readonly dataset: MemoryDataset, private readonly now: () => number = Date.now) {
@@ -251,12 +263,18 @@ export class MemoryShopStore implements ShopStore {
 
   removeTenant(tenantId: string): void {
     delete (this.dataset.tenants as Record<string, MemoryTenantData>)[tenantId];
+    this.paymentsData.delete(tenantId);
   }
 
   async withTenant<T>(tenantId: string, work: (repo: ShopRepository) => Promise<T>): Promise<T> {
     const data = this.dataset.tenants[tenantId];
     if (!data) throw new ShopDataError('profile_missing');
-    return work(new MemoryRepository(tenantId, data, this.drafts, this.auditLog, this.now));
+    let payments = this.paymentsData.get(tenantId);
+    if (!payments) {
+      payments = new MemoryPaymentsData(data.payments);
+      this.paymentsData.set(tenantId, payments);
+    }
+    return work(new MemoryRepository(tenantId, data, this.drafts, this.auditLog, this.now, payments));
   }
 
   async resolveTokenHash(tokenHash: string): Promise<{ tenantId: string; tokenId: string } | null> {

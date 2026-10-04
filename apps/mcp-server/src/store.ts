@@ -1,6 +1,7 @@
 // Data access contract for ShopVoice tools. Every call happens inside
 // ShopStore.withTenant(), which the Postgres implementation maps onto
 // runTenantScopedTransaction so RLS scopes all reads and writes.
+import type { PaymentsRepository } from './ledger/types.js';
 
 export interface ShopProfile {
   readonly tenantId: string;
@@ -102,6 +103,8 @@ export interface AuditEntry {
 }
 
 export interface ShopRepository {
+  /** Spending policy, payees, payment methods and the payment ledger (migration 019). */
+  readonly payments: PaymentsRepository;
   getProfile(): Promise<ShopProfile>;
   /** Today's date (YYYY-MM-DD) in the shop's timezone. */
   today(): Promise<string>;
