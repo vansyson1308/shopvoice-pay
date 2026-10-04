@@ -1,0 +1,106 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    name: lint, typecheck, unit, db, e2e
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: shopvoice_ci
+          POSTGRES_USER: postgres
+          # Throwaway service container bound to the runner's localhost: trust auth, no credential to leak.
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d shopvoice_ci"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install
+        run: npm ci --no-audit --no-fund
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Format check
+        run: npm run format:check
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: SQL interpolation guard
+        run: npm run sql:guard
+
+      - name: Unit tests (PayPal mocked)
+        env:
+          PAYPAL_MODE: mock
+        run: npm test
+
+      - name: Install PostgreSQL client
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+
+      - name: Apply migrations
+        env:
+          DATABASE_URL: postgresql://postgres@127.0.0.1:5432/shopvoice_ci
+        run: npm run db:migrate
+
+      - name: DB and RLS tests
+        env:
+          DATABASE_URL: postgresql://postgres@127.0.0.1:5432/shopvoice_ci
+        run: npm run test:db
+
+      - name: Voice flow e2e (memory backend, rules brain)
+        run: npm run demo:e2e
+
+  sandbox:
+    name: PayPal sandbox integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # Runs only when the repository has sandbox credentials configured.
+    # Forked PRs never see secrets, so this job is skipped for them.
+    if: ${{ github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository }}
+    env:
+      PAYPAL_CLIENT_ID: ${{ secrets.PAYPAL_CLIENT_ID }}
+      PAYPAL_CLIENT_SECRET: ${{ secrets.PAYPAL_CLIENT_SECRET }}
+      PAYPAL_MODE: sandbox
+    steps:
+      - uses: actions/checkout@v4
+        if: ${{ env.PAYPAL_CLIENT_ID != '' }}
+
+      - uses: actions/setup-node@v4
+        if: ${{ env.PAYPAL_CLIENT_ID != '' }}
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install
+        if: ${{ env.PAYPAL_CLIENT_ID != '' }}
+        run: npm ci --no-audit --no-fund
+
+      - name: Sandbox tests
+        if: ${{ env.PAYPAL_CLIENT_ID != '' }}
+        run: npm run test:sandbox
+
+      - name: No sandbox credentials
+        if: ${{ env.PAYPAL_CLIENT_ID == '' }}
+        run: echo "PAYPAL_CLIENT_ID is not set; sandbox integration tests skipped."
