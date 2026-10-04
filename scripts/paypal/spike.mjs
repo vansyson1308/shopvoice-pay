@@ -12,7 +12,7 @@
 // against the in-process fake, approving automatically: a self-test of this
 // script, not evidence about PayPal.
 import { writeFileSync, mkdirSync } from 'node:fs';
-import { approveInSandbox } from './sandbox-approver.mjs';
+import { approveInSandbox, TEST_FLAG } from './sandbox-approver.mjs';
 import { setTimeout as sleep } from 'node:timers/promises';
 import {
   createPayPalRuntime, newRequestId, PayPalApiError, findLink,
@@ -90,7 +90,7 @@ async function waitForBuyer(kind, id, url, isApproved) {
   // Either the headless approver (SPIKE_BUYER_PASSWORD set) or a person clicks the link;
   // both are confirmed the same way, by asking PayPal for the resource status.
   let approver = null;
-  if (env.SPIKE_BUYER_PASSWORD) {
+  if (env.SPIKE_BUYER_PASSWORD && env[TEST_FLAG] === '1') {
     console.log(`  Approving ${kind} as the sandbox buyer in headless Chromium...`);
     approver = approveInSandbox(url, {
       email: env.SPIKE_BUYER_EMAIL,

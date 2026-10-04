@@ -19,7 +19,7 @@
     "test:coverage:policy": "node --test --experimental-test-coverage --test-coverage-include='apps/mcp-server/dist/policy/*.js' --test-coverage-branches=95 --test-coverage-lines=95 tests/unit/policy-engine.test.mjs",
     "test:db": "node --test --test-concurrency=1 tests/db/*.test.mjs",
     "test:sandbox": "npm run build && node --test --test-concurrency=1 tests/sandbox/*.test.mjs",
-    "spike": "npm run build && node scripts/paypal/spike.mjs",
+    "spike": "npm run build && SHOPVOICE_TEST_ONLY_HEADLESS_APPROVAL=1 node scripts/paypal/spike.mjs",
     "db:migrate": "node scripts/db_migrate.mjs",
     "db:rollback": "node scripts/db_rollback.mjs",
     "db:status": "node scripts/db_status.mjs",

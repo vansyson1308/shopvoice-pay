@@ -68,6 +68,12 @@ Details: [docs/paypal/ARCHITECTURE.md](docs/paypal/ARCHITECTURE.md). Day-1 sandb
 
 Every POST carries a `PayPal-Request-Id` idempotency key. Retries only ever replay the same key.
 
+**Demo settlement vs. production.** The demo charges the shop into a ShopVoice platform sandbox account and pays suppliers out with Payouts. We chose that because the sandbox spike showed the direct routes are closed to a self-serve app:
+- a vaulted payment to a supplier payee is rejected (`BILLING_AGREEMENT_NOT_FOUND`);
+- the platform cannot release a hold it is not the payee of (403 `PERMISSION_DENIED`).
+
+In production, ShopVoice would use PayPal's multiparty partner onboarding, so suppliers are onboarded payees and ShopVoice never holds third-party funds. See [DECISIONS.md → Production path](docs/paypal/DECISIONS.md#production-path-d1).
+
 ## AI used, and what is simulated
 
 - **LLM brain** (planned for M2): tool calling through Amazon Bedrock, OpenAI or Anthropic, chosen by the `BRAIN` env var. An offline `rules` brain runs the tests. The LLM handles understanding requests, summarising spend, reading supplier invoices (vision), negotiating substitutions within policy, and explaining decisions. **It never decides whether money moves.**

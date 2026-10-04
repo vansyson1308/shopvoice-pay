@@ -21,8 +21,27 @@ Each entry gives the decision, the reasoning, and what would change it. Dates ar
 
 **Consequences.**
 - A refund after the supplier was paid out is netted against that supplier's next settlement and shown as "supplier credit". By default the settlement run waits until the delivery check passes, so refunds for spoiled goods usually reduce the payout instead.
-- In production this is a regulated flow (a platform holding funds for sellers). The production path is PayPal Multiparty with onboarded suppliers (`usage_type: PLATFORM`, partner attribution, seller consent). README and DEVPOST say so plainly.
+- In production this would be a regulated flow (a platform holding funds for sellers), so production uses a different design; see "Production path" below.
 - The `direct_payee` setting is removed from the plan; there is one settlement code path.
+
+### Production path (D1)
+
+**What the demo does, and why.** The platform wallet + Payouts flow is the *sandbox-proven* design for this demo.
+- Every supplier order is a PayPal `AUTHORIZE` paid to the ShopVoice platform sandbox account.
+- After delivery, the supplier is paid through Payouts.
+- We chose it because the spike showed that the direct alternatives do not work for a self-serve app:
+  - **A vaulted order naming the supplier as payee is rejected.** 422 `BILLING_AGREEMENT_NOT_FOUND`, for both `AUTHORIZE` and `CAPTURE` (SPIKE.md §4.3; debug ids `f7579910c0f08`, `f6843248f81d9`). A `MERCHANT` vault token is an agreement between the payer and the API caller only.
+  - **The platform cannot release a hold it is not the payee of.** Voiding a supplier-payee authorization returns 403 `NOT_AUTHORIZED / PERMISSION_DENIED`, even before any capture (SPIKE.md §4.2, checks S2.2 and S2.9). So "nothing arrived, release the money" would be impossible with direct payees.
+
+**Production.** In production, ShopVoice would **not** hold third-party funds. It would use PayPal's **multiparty / partner onboarding**:
+- Each supplier is onboarded through PayPal partner referrals and consents to ShopVoice acting on its behalf. Suppliers become onboarded payees (`purchase_units[].payee.merchant_id`).
+- The owner's vault token is created with `usage_type: PLATFORM` under ShopVoice's partner attribution (`PayPal-Partner-Attribution-Id`).
+- Holds, captures, voids and refunds are made on the supplier's behalf with `PayPal-Auth-Assertion`.
+- Money moves from the shop directly to the supplier. ShopVoice keeps the policy, ledger and audit role, and never sits in the funds flow, so no Payouts step is needed.
+
+**What stays the same in production:** the policy engine, the ledger state machine, the hold-then-capture-on-delivery flow and the agent. Only the payee field and the partner headers change.
+
+**What we have not built** for the hackathon, because it needs PayPal partner approval: supplier onboarding (KYC) and the `PLATFORM` vault flow. README and DEVPOST say so plainly.
 
 ## D2. Hold first, capture on delivery (2026-10-04, **confirmed**)
 
@@ -79,8 +98,16 @@ Database role names inside migrations 001–018 (`groceryclaw_app_runtime`, …)
 
 `vansyson1308/shopvoice-pay` did not exist at the start of M0. The GitHub connector cannot create repositories (403), so the owner created it. The history was built locally and pushed with `main` = the import commit; everything after it went through PRs. Nothing was pushed to groceryclaw on any branch.
 
-## D9. Sandbox buyer approval is automated with Playwright, for tests only (2026-10-04)
+## D9. Sandbox buyer approval is automated with Playwright, for tests only (2026-10-04, gated 2026-10-05)
 
-**Decision.** `scripts/paypal/sandbox-approver.mjs` logs in as the sandbox personal account in headless Chromium and approves orders and vault setup tokens, so the spike and the sandbox tests can run unattended. It refuses non-sandbox URLs. Behind a TLS-intercepting proxy it pins the proxy CA's key instead of disabling certificate checks.
+**Decision.** `scripts/paypal/sandbox-approver.mjs` logs in as the sandbox personal account in headless Chromium and approves orders and vault setup tokens, so the spike and the sandbox tests can run unattended.
+- It refuses non-sandbox URLs.
+- Behind a TLS-intercepting proxy it pins the proxy CA's key instead of disabling certificate checks.
+
+**Gate (owner decision, 2026-10-05).** The approver runs only when `SHOPVOICE_TEST_ONLY_HEADLESS_APPROVAL=1` is set. It refuses when `NODE_ENV=production` and when it detects a hosting platform (`RENDER`, `RENDER_SERVICE_ID`, `RAILWAY_ENVIRONMENT`). Only `npm run spike` sets the flag. `tests/unit/approver-gate.test.mjs` proves that:
+- the gate refuses in each of those cases;
+- no file under `apps/` or `packages/` (source or build output) references the approver or imports Playwright;
+- no Dockerfile copies `scripts/paypal`;
+- Playwright is a dev dependency only.
 
 **Why.** Four buyer approvals per spike run, and later the hosted e2e, would otherwise need a person at a keyboard. The product itself never automates the owner's approval. Playwright is also the planned e2e runner (§7.B), so this adds no new framework.
