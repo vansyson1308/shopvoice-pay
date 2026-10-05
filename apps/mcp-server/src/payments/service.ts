@@ -9,7 +9,9 @@
 // the platform account; suppliers are paid out for what was captured.
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { decryptPayload, encryptPayload } from '../../../../packages/common/dist/index.js';
-import { evaluatePolicy, periodStarts } from '../policy/policy-engine.js';
+import { evaluatePolicy, periodStarts, DEFAULT_POLICY } from '../policy/policy-engine.js';
+import { threeWayMatch } from '../reconcile/three-way-match.js';
+import type { CountedLine, InvoiceLine, ThreeWayResult } from '../reconcile/three-way-match.js';
 import type { PolicyDraft, PolicyResult, SpendHistoryEntry, SpendPolicy } from '../policy/policy-engine.js';
 import { linesFingerprint } from '../policy/anomaly.js';
 import { committedMinor, heldMinor, chargedMinor, LedgerError } from '../ledger/state-machine.js';
@@ -467,10 +469,7 @@ export class PaymentsService {
    * the owner instead of captured (we never capture more than was approved).
    */
   async recordDelivery(ctx: ServiceContext, paymentId: string, received: readonly { readonly sku: string; readonly receivedQty: number }[], source: 'voice' | 'invoice_photo' | 'console'): Promise<{ payment: PublicPayment; outcome: DeliveryOutcome; deliveredMinor: number; speech: string }> {
-    let payment = await this.mustGet(ctx, paymentId);
-    if (payment.status !== 'authorized' && payment.status !== 'partially_captured') throw new PaymentFlowError('nothing_held', 'This order has no money on hold');
-    if (!payment.paypalAuthorizationId) throw new PaymentFlowError('nothing_held', 'This order has no PayPal hold');
-    const name = ctx.supplierName(payment.supplierCode);
+    const payment = await this.mustHold(ctx, paymentId);
     const lines: ReceivedLine[] = payment.lines.map((l) => {
       const got = received.find((r) => r.sku === l.sku);
       const qty = got ? Math.max(0, Math.floor(got.receivedQty)) : 0;
@@ -482,35 +481,81 @@ export class PaymentsService {
     const held = heldMinor(payment);
     const value = Math.min(deliveredMinor, held);
     const outcome: DeliveryOutcome = over ? 'hold' : value === 0 ? 'none' : value === held ? 'full' : 'partial';
-    // The delivery row is written after the money moves, so it never claims a charge that failed.
-    const note = () => ctx.repo.recordDelivery({ paymentId, source, receivedLines: lines, outcome, deliveredValueMinor: deliveredMinor, currency: payment.currency });
-    if (outcome === 'hold') {
-      await note();
-      return { payment: toPublicPayment(payment), outcome, deliveredMinor, speech: `${name} delivered more than you ordered. I'm holding the money until you check it.` };
+    const done = await this.applyDelivery(ctx, payment, { lines, outcome, valueMinor: value, deliveredMinor, source });
+    return { payment: done.payment, outcome, deliveredMinor, speech: done.speech };
+  }
+
+  /**
+   * 3-way match without moving money: the order (our ledger), the owner's count and
+   * the lines read from an invoice photo. The invoice is untrusted data.
+   */
+  async previewInvoiceMatch(ctx: ServiceContext, paymentId: string, invoice: readonly InvoiceLine[], counted: readonly CountedLine[] | null): Promise<{ payment: PaymentRecord; match: ThreeWayResult }> {
+    const payment = await this.mustHold(ctx, paymentId);
+    const stored = await ctx.repo.getPolicy();
+    const match = threeWayMatch({
+      po: payment.lines.map((l) => ({ sku: l.sku, name: l.name, orderedQty: l.qty, unitCostMinor: l.unitCostMinor })),
+      invoice, counted, heldMinor: heldMinor(payment), priceTolerancePct: stored?.substitutionTolerancePct ?? DEFAULT_POLICY.substitutionTolerancePct
+    });
+    return { payment, match };
+  }
+
+  /** Runs the 3-way match and acts on it: charge what may be charged and release the rest, or hold. */
+  async recordInvoiceDelivery(ctx: ServiceContext, paymentId: string, invoice: readonly InvoiceLine[], counted: readonly CountedLine[] | null, extractor: string): Promise<{ payment: PublicPayment; outcome: DeliveryOutcome; match: ThreeWayResult; speech: string }> {
+    const { payment, match } = await this.previewInvoiceMatch(ctx, paymentId, invoice, counted);
+    const lines: ReceivedLine[] = match.lines.map((l) => ({ sku: l.sku, orderedQty: l.orderedQty, receivedQty: l.countedQty ?? l.invoicedQty, unitCostMinor: l.payUnitMinor }));
+    const done = await this.applyDelivery(ctx, payment, {
+      lines, outcome: match.decision, valueMinor: match.payableMinor, deliveredMinor: match.payableMinor, source: 'invoice_photo',
+      holdSpeech: match.reasons[0]
+    });
+    await ctx.repo.recordInvoiceMatch({
+      deliveryId: done.deliveryId,
+      extractedLines: invoice.map((l) => ({ description: l.description, sku: l.sku, quantity: l.quantity, unit_price_minor: l.unitPriceMinor })),
+      poLines: match.lines.map((l) => ({ sku: l.sku, name: l.name, ordered_qty: l.orderedQty, counted_qty: l.countedQty, invoiced_qty: l.invoicedQty, po_unit_minor: l.poUnitMinor, invoice_unit_minor: l.invoiceUnitMinor, pay_minor: l.payMinor })),
+      result: match.result,
+      varianceMinor: match.varianceMinor,
+      extractor
+    });
+    return { payment: done.payment, outcome: match.decision, match, speech: done.speech };
+  }
+
+  private async mustHold(ctx: ServiceContext, paymentId: string): Promise<PaymentRecord> {
+    const payment = await this.mustGet(ctx, paymentId);
+    if (payment.status !== 'authorized' && payment.status !== 'partially_captured') throw new PaymentFlowError('nothing_held', 'This order has no money on hold');
+    if (!payment.paypalAuthorizationId) throw new PaymentFlowError('nothing_held', 'This order has no PayPal hold');
+    return payment;
+  }
+
+  /** Moves the money for a delivery decision; the delivery row is written after, so it never claims a charge that failed. */
+  private async applyDelivery(ctx: ServiceContext, original: PaymentRecord, d: { lines: ReceivedLine[]; outcome: DeliveryOutcome; valueMinor: number; deliveredMinor: number; source: 'voice' | 'invoice_photo' | 'console'; holdSpeech?: string | undefined }): Promise<{ payment: PublicPayment; deliveryId: string; speech: string }> {
+    let payment = original;
+    const name = ctx.supplierName(payment.supplierCode);
+    const held = heldMinor(payment);
+    const value = Math.min(d.valueMinor, held);
+    const note = async () => (await ctx.repo.recordDelivery({ paymentId: payment.id, source: d.source, receivedLines: d.lines, outcome: d.outcome, deliveredValueMinor: d.deliveredMinor, currency: payment.currency })).id;
+    if (d.outcome === 'hold') {
+      return { payment: toPublicPayment(payment), deliveryId: await note(), speech: d.holdSpeech ?? `${name} delivered more than you ordered. I'm holding the money until you check it.` };
     }
     payment = await this.ensureCapturable(ctx, payment);
     const authId = payment.paypalAuthorizationId as string;
-    if (outcome === 'none') {
+    if (d.outcome === 'none' || value === 0) {
       const voided = await this.voidHold(ctx, payment, 'Nothing was delivered');
-      await note();
-      return { payment: toPublicPayment(voided), outcome, deliveredMinor, speech: `Nothing arrived from ${name}, so I released the ${money(held, payment.currency)} hold. You weren't charged.` };
+      return { payment: toPublicPayment(voided), deliveryId: await note(), speech: `Nothing arrived from ${name}, so I released the ${money(held, payment.currency)} hold. You weren't charged.` };
     }
+    const final = d.outcome === 'full' && value === held;
     const n = payment.paypalCaptureIds.length + 1;
     const captureId = `svp-cap-${payment.id}-${n}`;
-    const capture = await captureAuthorization(this.paypal, authId, { amount: { amountMinor: value, currency: payment.currency }, finalCapture: outcome === 'full', invoiceId: `SVP-${payment.id.slice(0, 8)}-${n}`, requestId: captureId, correlationId: ctx.correlationId });
+    const capture = await captureAuthorization(this.paypal, authId, { amount: { amountMinor: value, currency: payment.currency }, finalCapture: final, invoiceId: `SVP-${payment.id.slice(0, 8)}-${n}`, requestId: captureId, correlationId: ctx.correlationId });
     payment = await ctx.repo.record(payment.id, {
-      action: { kind: 'capture', amountMinor: value, final: outcome === 'full' },
+      action: { kind: 'capture', amountMinor: value, final },
       patch: { addCaptureId: capture.id },
-      event: { kind: 'captured', amountMinor: value, actor: 'system', reason: outcome === 'full' ? 'Everything arrived' : `Charged for what arrived (${source})`, paypalRequestId: captureId, paypalResourceId: capture.id, correlationId: ctx.correlationId }
+      event: { kind: 'captured', amountMinor: value, actor: 'system', reason: final ? 'Everything arrived' : `Charged for what arrived (${d.source})`, paypalRequestId: captureId, paypalResourceId: capture.id, correlationId: ctx.correlationId }
     });
-    if (outcome === 'full') {
-      await note();
-      return { payment: toPublicPayment(payment), outcome, deliveredMinor, speech: `Everything from ${name} arrived. Charged ${money(value, payment.currency)}.` };
+    if (final) {
+      return { payment: toPublicPayment(payment), deliveryId: await note(), speech: `Everything from ${name} arrived. Charged ${money(value, payment.currency)}.` };
     }
     const released = heldMinor(payment);
     payment = await this.voidHold(ctx, payment, 'Released what did not arrive');
-    await note();
-    return { payment: toPublicPayment(payment), outcome, deliveredMinor, speech: `Charged ${money(value, payment.currency)} for what arrived from ${name} and released ${money(released, payment.currency)}.` };
+    return { payment: toPublicPayment(payment), deliveryId: await note(), speech: `Charged ${money(value, payment.currency)} for what arrived from ${name} and released ${money(released, payment.currency)}.` };
   }
 
   private async voidHold(ctx: ServiceContext, payment: PaymentRecord, reason: string): Promise<PaymentRecord> {

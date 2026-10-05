@@ -606,7 +606,7 @@ async function openPayment(id) {
   body.replaceChildren(el('p', { class: 'muted' }, 'Loading…'));
   if (!dialog.open) dialog.showModal();
   try {
-    const { payment: p, events, deliveries } = await apiJson(`/api/owner/payments/${id}`);
+    const { payment: p, events, deliveries, invoice_matches: matches = [] } = await apiJson(`/api/owner/payments/${id}`);
     $('payment-title').textContent = `${p.supplier_name} · ${cents(p.amount_minor, p.currency)}`;
     const facts = el('dl', { class: 'stats' }, [
       ['Status', statusChip(p.status, p)], ['Held', cents(p.held_minor)], ['Charged', cents(p.charged_minor)], ['Released', cents(p.released_minor)],
@@ -621,7 +621,8 @@ async function openPayment(id) {
       el('table', { class: 'lines' }, el('tbody', {}, p.lines.map((l) => el('tr', {}, el('td', {}, l.name), el('td', { class: 'num' }, l.qty), el('td', { class: 'num' }, cents(l.unit_cost_minor)))))),
       el('h3', {}, 'History'), history);
     if (deliveries.length) body.append(el('p', { class: 'muted' }, `Deliveries recorded: ${deliveries.map((d) => `${d.outcome} (${cents(d.delivered_value_minor)})`).join(', ')}`));
-    if (p.held_minor > 0) body.append(deliveryForm(p));
+    for (const m of matches) body.append(el('p', { class: 'muted' }, `Invoice check: ${MATCH_RESULT[m.result] ?? m.result} (read by ${m.extractor}${m.variance_minor ? `; billed ${cents(m.variance_minor)} more than paid` : ''}).`));
+    if (p.held_minor > 0) body.append(invoiceSection(p), deliveryForm(p));
     if (p.charged_minor > 0 && p.held_minor === 0) body.append(refundForm(p));
   } catch (error) {
     body.replaceChildren(el('p', { class: 'form-error' }, error.message));
@@ -642,6 +643,92 @@ function deliveryForm(p) {
     void submitDelivery(p, { lines: p.lines.map((l) => ({ sku: l.sku, received_qty: Number(data.get(l.sku) ?? 0) })) });
   });
   return form;
+}
+
+// ---------- Invoice photo: 3-way match (order, count, invoice) ----------
+
+const MATCH_RESULT = { match: 'order, delivery and invoice agree', short: 'short delivery', over: 'more than ordered', price_mismatch: 'price above the order', mismatch: 'lines not on the order' };
+const DECISION_TEXT = { full: 'Charge in full', partial: 'Charge for what arrived, release the rest', none: 'Nothing to charge, release the hold', hold: 'Hold the money for you to check' };
+
+function invoiceSection(p) {
+  const out = el('div', { class: 'invoice-result', 'aria-live': 'polite' });
+  const file = el('input', { type: 'file', accept: 'image/jpeg,image/png,image/webp,image/gif', 'aria-label': 'Invoice photo', capture: 'environment' });
+  const samples = el('div', { class: 'sample-list' });
+  const section = el('section', { class: 'inline-form', 'aria-label': 'Invoice photo' },
+    el('h3', {}, 'Invoice photo'),
+    el('p', { class: 'muted' }, 'Snap the delivery invoice. The lines are read from the photo and checked against your order and your count; the invoice can only lower the charge or hold the money.'),
+    el('label', {}, 'Photo of the invoice', file), samples, out);
+  file.addEventListener('change', () => {
+    const f = file.files?.[0];
+    if (!f) return;
+    if (f.size > 3_500_000) { toast('That photo is too large (3.5 MB at most).', 'err'); return; }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const url = String(reader.result);
+      void readInvoice(p, out, { media_type: f.type, image_base64: url.slice(url.indexOf(',') + 1) }, url);
+    };
+    reader.readAsDataURL(f);
+  });
+  void apiJson('/api/invoice/samples').then(({ samples: list }) => {
+    const mine = list.filter((s) => s.supplier_code === p.supplier_code);
+    if (mine.length) samples.replaceChildren(el('span', { class: 'muted' }, 'Or try a sample: '), ...mine.map((s) => el('button', { class: 'btn ghost small', type: 'button', onclick: () => void readInvoice(p, out, { sample_id: s.id }, s.url) }, s.title)));
+  }).catch(() => {});
+  return section;
+}
+
+async function readInvoice(p, out, source, imageUrl) {
+  out.replaceChildren(el('p', { class: 'muted' }, 'Reading the invoice…'));
+  try {
+    const data = await apiJson('/api/invoice/read', { method: 'POST', body: { payment_id: p.id, ...source } });
+    renderMatch(p, out, data, imageUrl);
+  } catch (error) {
+    out.replaceChildren(el('p', { class: 'form-error' }, error.message));
+  }
+}
+
+function renderMatch(p, out, data, imageUrl) {
+  const { invoice, match } = data;
+  const counts = new Map(match.lines.map((l) => [l.sku, l.counted_qty ?? l.invoiced_qty]));
+  const rows = match.lines.map((l) => el('tr', {},
+    el('td', {}, l.name),
+    el('td', { class: 'num' }, `${l.ordered_qty} × ${cents(l.po_unit_minor)}`),
+    el('td', { class: 'num' }, el('input', { type: 'number', min: '0', max: String(l.ordered_qty * 3), step: '1', value: String(counts.get(l.sku)), 'aria-label': `Counted: ${l.name}`, 'data-sku': l.sku })),
+    el('td', { class: 'num' }, l.invoice_unit_minor === null ? 'not billed' : `${l.invoiced_qty} × ${cents(l.invoice_unit_minor)}`),
+    el('td', { class: 'num' }, match.decision === 'hold' ? 'held' : cents(l.pay_minor))));
+  const extra = match.unmatched.map((u) => el('tr', { class: 'err' }, el('td', {}, `${u.description} (not on your order)`), el('td', {}, '–'), el('td', {}, '–'), el('td', { class: 'num' }, `${u.quantity} × ${cents(u.unit_price_minor)}`), el('td', { class: 'num' }, cents(0))));
+  const table = el('table', { class: 'lines match' },
+    el('thead', {}, el('tr', {}, el('th', {}, 'Product'), el('th', { class: 'num' }, 'Ordered'), el('th', { class: 'num' }, 'Counted'), el('th', { class: 'num' }, 'Invoiced'), el('th', { class: 'num' }, 'Pay'))),
+    el('tbody', {}, rows, extra));
+  const ignored = invoice.ignored_text.length
+    ? el('div', { class: 'note warn', role: 'note' }, el('strong', {}, 'Ignored text on the invoice that tried to instruct the AI: '), invoice.ignored_text.map((t) => el('q', {}, t)), ' It was not followed.')
+    : null;
+  const decision = el('p', { class: `chip ${match.decision === 'hold' ? 'warn' : 'ok'}` }, `${DECISION_TEXT[match.decision]}: ${cents(match.payable_minor)}`);
+  const apply = el('button', { class: 'btn primary', type: 'button' }, match.decision === 'hold' ? 'Record and keep holding' : `Charge ${cents(match.payable_minor)}`);
+  const recheck = el('button', { class: 'btn ghost', type: 'button' }, 'Recheck with my count');
+  const counted = () => [...table.querySelectorAll('input[data-sku]')].map((i) => ({ sku: i.dataset.sku, received_qty: Number(i.value || 0) }));
+  recheck.addEventListener('click', async () => {
+    try {
+      renderMatch(p, out, await apiJson('/api/invoice/preview', { method: 'POST', body: { read_id: data.read_id, counted: counted() } }), imageUrl);
+    } catch (error) { toast(error.message, 'err'); }
+  });
+  apply.addEventListener('click', async () => {
+    apply.disabled = true;
+    try {
+      const done = await apiJson('/api/invoice/apply', { method: 'POST', body: { read_id: data.read_id, counted: counted() } });
+      toast(done.speech ?? 'Invoice checked.');
+      await openPayment(p.id);
+      void loadLedger();
+      void loadOverview();
+    } catch (error) { apply.disabled = false; toast(error.message, 'err'); }
+  });
+  out.replaceChildren(
+    el('div', { class: 'invoice-grid' },
+      imageUrl ? el('img', { src: imageUrl, alt: `Invoice ${invoice.invoice_number ?? ''} from ${invoice.supplier_name ?? 'the supplier'}`, class: 'invoice-thumb' }) : null,
+      el('div', {},
+        el('p', { class: 'muted' }, `${invoice.supplier_name ?? 'Unknown supplier'} · invoice ${invoice.invoice_number ?? '–'} · ${invoice.simulated ? 'read by the simulated sample reader (no AI configured)' : `read by ${invoice.extractor}`}`),
+        table, ignored, decision,
+        el('ul', { class: 'reasons' }, match.reasons.map((r) => el('li', {}, r))),
+        el('div', { class: 'card-actions' }, recheck, apply))));
 }
 
 async function submitDelivery(p, body) {

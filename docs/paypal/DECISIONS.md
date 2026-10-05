@@ -245,3 +245,42 @@ A full id of either family is accepted too.
 **Endpoints.** Bedrock serves Sonnet 5.5 on its Mantle endpoint (`AnthropicBedrockMantle`, IAM `bedrock-mantle:CreateInference`). Haiku 4.5 runs on the older Bedrock runtime (`AnthropicBedrock`, IAM `bedrock:InvokeModel`). The client is picked from the model id.
 
 **Measuring.** `npm run probe:voice -- --console-url <url>` asks read-only questions in a fresh sample shop and reports the round-trip p50/p95. It runs once credentials exist (DEPLOY.md, step 8).
+
+## D17. Invoice photo → 3-way match; the invoice can only lower a charge or hold it (2026-10-05)
+
+**Decision.** In the console, the owner photographs the delivery invoice in the payment dialog of a held order, or picks a sample invoice.
+
+**Steps.**
+1. The console reads the photo into line items.
+2. The MCP server runs a pure, deterministic 3-way match (`reconcile/three-way-match.ts`). It compares:
+   - **the order**, from our own ledger;
+   - **the owner's count**, editable in the dialog; without one, the invoice quantities stand in and the result says so (2-way);
+   - **the invoice**.
+3. Nothing moves until the owner presses Charge.
+4. The result goes through the same capture path as a voice count: charge what may be charged and void the rest, or hold.
+5. Each match is stored in `invoice_matches` next to its delivery.
+
+**Rules.**
+- Pay for what arrived, never more than ordered, never more than billed. Pay at the lower of the order and invoice prices.
+- These put the money on hold for the owner:
+  - an invoice line that is not on the order;
+  - more than was ordered;
+  - an invoice price more than `substitution_tolerance_pct` (5%) above the order.
+- A property test over 3,000 random invoices checks that the charge never exceeds the order value or the hold.
+
+**The photo is untrusted.**
+- The reader is Claude vision, with the same client and model as the voice brain. It has **no tools**, a fixed JSON output schema (structured outputs), and a system prompt that says the image is data.
+- Text addressed to an AI goes into `ignored_text`, which is shown to the owner as "not followed".
+- Our code re-validates the output:
+  - unknown keys are dropped;
+  - numbers are bounded;
+  - control and bidi characters are stripped;
+  - a SKU counts only if it is on the order.
+- Nothing from an invoice is ever put in the voice brain's context; a test records every brain input to check this.
+- A test with a stub model that "obeys" the injection shows the charge cannot rise, no line or payee is added and the rules do not change.
+
+**Offline demo.** Without Claude configured, only the two sample photos can be read. They are recognised by their bytes, and the reading is labelled "simulated sample reader" in the console:
+- a short milk delivery;
+- the same order with a $350 fee and a note to AI.
+
+**Deviation from the original layout.** The extractor lives in the console (`apps/console/src/invoice-extract.ts`), where the Claude credentials are. The match lives in the MCP server, which owns the money.
