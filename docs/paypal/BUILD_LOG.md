@@ -2,6 +2,31 @@
 
 Running log for ShopVoice Pay (PayPal AI Hackathon). Newest entry first. Times are Vietnam time (UTC+7).
 
+## 2026-10-05 (Mon, 10:00 VN): M3/M4 items 1–4 built while hosting waits on the owner
+
+**Done**
+- PR #17 (merged): **voice model choice**. Claude Sonnet 5.5 is the default voice brain and Claude Haiku 4.5 the fast option (`CLAUDE_MODEL=sonnet|haiku`); Opus is refused for the voice loop (D16). Includes the `npm run probe:voice` latency probe.
+- PR #18 (merged): **invoice photo → 3-way match** with the injection test (D17).
+  - The invoice can only lower a charge or hold it.
+  - The voice model never sees invoice text.
+- PR #19 (merged): **supplier agent on PayPal's Cart API spec** (simulated suppliers), with a sequence diagram in SUPPLIER_AGENT.md (D18).
+  - The buyer agent accepts a substitution only through the rules engine, within the hold.
+- PR #20 (open): **PayPal Agent Toolkit behind the policy layer** (D19, AGENT_TOOLKIT.md).
+  - Tracking is added to the capture after delivery; `check_paypal_records` checks the ledger against PayPal's records; two-step catering invoices.
+  - The toolkit runs on our token and our request ids. Refunds and merchant insights are denied.
+  - Migration 025 adds `sales_invoices`.
+- PR #21 (open): **SECURITY.md**. A threat model of 11 threats, with 77 linked tests checked in CI (`npm run security:links`).
+
+**Verified (local)**
+- Unit: 284/284. DB: 62/62 on Postgres 16.
+- Evals: safety 100% of 25, quality 100% of 17.
+- Browser e2e: 2/2. `demo:e2e`: passed.
+- The MCP Docker image was built and the toolkit runs inside it.
+- Against the real PayPal sandbox: the toolkit created, sent and read back a catering invoice, and transaction search answered.
+- Tracking on a real capture is covered by a sandbox test that needs `SANDBOX_VAULT_ID`. It is skipped in CI until that secret exists.
+
+**Still waiting on the owner**: Render setup, the Claude credentials, `SANDBOX_SUPPLIER_EMAILS`, and optionally the `SANDBOX_VAULT_ID` / `SANDBOX_SUPPLIER_EMAIL` repo secrets.
+
 ## 2026-10-05 (Mon, 03:45 VN): M2 build complete except the live hosted preview
 
 **Done (all merged into `main` with CI green)**
