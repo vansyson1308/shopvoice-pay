@@ -51,6 +51,9 @@ jobs:
       - name: SQL interpolation guard
         run: npm run sql:guard
 
+      - name: SECURITY.md links real tests
+        run: npm run security:links
+
       - name: Unit tests (PayPal mocked)
         env:
           PAYPAL_MODE: mock
