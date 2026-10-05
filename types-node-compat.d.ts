@@ -37,7 +37,17 @@ declare module 'node:crypto' {
   export type JsonWebKey = { [key: string]: unknown };
   export function randomUUID(): string;
   export function timingSafeEqual(a: Buffer, b: Buffer): boolean;
-  export function createPublicKey(input: { key: JsonWebKey; format: 'jwk' }): unknown;
+  export interface KeyObject {
+    readonly type: 'public' | 'private' | 'secret';
+    export(options: { format: 'jwk' }): JsonWebKey;
+  }
+  export function createPublicKey(input: { key: JsonWebKey; format: 'jwk' } | KeyObject | string): KeyObject;
+  export function createPrivateKey(input: string): KeyObject;
+  export function generateKeyPairSync(type: 'rsa', options: { modulusLength: number }): { privateKey: KeyObject; publicKey: KeyObject };
+  export function createSign(algorithm: string): {
+    update(data: string | Buffer): { sign(key: KeyObject): Buffer };
+    sign(key: KeyObject): Buffer;
+  };
   export function randomBytes(size: number): Buffer;
   export function createCipheriv(algorithm: string, key: Buffer, iv: Buffer): {
     update(data: Buffer): Buffer;
@@ -50,7 +60,7 @@ declare module 'node:crypto' {
     setAuthTag(tag: Buffer): void;
   };
   export function createVerify(algorithm: string): {
-    update(data: string | Buffer): void;
+    update(data: string | Buffer): { verify(key: unknown, signature: Buffer): boolean };
     end(): void;
     verify(key: unknown, signature: Buffer): boolean;
   };

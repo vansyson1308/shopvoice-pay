@@ -88,6 +88,12 @@ class PgShopRepository implements ShopRepository {
     }));
   }
 
+  async productBySku(sku: string): Promise<{ sku: string; name: string } | null> {
+    const { rows } = await this.client.query('SELECT sku, product_name FROM product_cache WHERE tenant_id = _rls_tenant_id() AND sku = $1', [sku]);
+    const r = rows[0] as Record<string, unknown> | undefined;
+    return r ? { sku: String(r.sku), name: String(r.product_name) } : null;
+  }
+
   async searchProducts(query: string, limit: number): Promise<ProductMatch[]> {
     const matches = await searchProductsForVoice({
       queryMany: async (sql, params) => {

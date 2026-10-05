@@ -149,6 +149,11 @@ class MemoryRepository implements ShopRepository {
       .map((p) => ({ ...p, avgDaily14d: (units.get(p.sku) ?? 0) / 14 }));
   }
 
+  async productBySku(sku: string): Promise<{ sku: string; name: string } | null> {
+    const p = this.data.products.find((x) => x.sku === sku);
+    return p ? { sku: p.sku, name: p.name } : null;
+  }
+
   async searchProducts(query: string, limit: number): Promise<ProductMatch[]> {
     const q = query.trim();
     if (q.length < 2) return [];

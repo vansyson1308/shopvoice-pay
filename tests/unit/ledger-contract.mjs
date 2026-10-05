@@ -171,6 +171,24 @@ export function runLedgerContract(label, { withRepo, makeDraftId = async () => r
     await assert.rejects(withRepo((repo) => repo.recordDelivery({ paymentId: randomUUID(), source: 'voice', outcome: 'none', deliveredValueMinor: 0, currency: 'USD', receivedLines: [] })));
   });
 
+  t('an accepted substitution swaps the order lines only while held, before any charge, within the hold', async () => {
+    const { id } = await withRepo((repo) => repo.createPayment(newPayment(), event('policy_evaluated', 14_400)));
+    const swap = [{ sku: 'MILK-2G', name: 'Whole milk, 2 x 1/2 gal', qty: 24, unitCostMinor: 600 }];
+    await assert.rejects(withRepo((repo) => repo.record(id, { patch: { lines: swap }, event: event('cart_negotiated', 14_400) })), (e) => e instanceof LedgerError && e.code === 'lines_locked', 'not held yet');
+    await withRepo((repo) => repo.record(id, { action: { kind: 'authorize', amountMinor: 14_400 }, event: event('authorized', 14_400) }));
+    await assert.rejects(withRepo((repo) => repo.record(id, { patch: { lines: [{ ...swap[0], unitCostMinor: 700 }] }, event: event('cart_negotiated', 16_800) })), (e) => e instanceof LedgerError && e.code === 'over_hold');
+    await assert.rejects(withRepo((repo) => repo.record(id, { patch: { lines: [{ ...swap[0], qty: 0 }] }, event: event('cart_negotiated', 0) })), (e) => e instanceof LedgerError && e.code === 'invalid_lines');
+    const swapped = await withRepo((repo) => repo.record(id, { patch: { lines: swap }, event: event('cart_negotiated', 14_400) }));
+    assert.deepEqual(swapped.lines, swap);
+    assert.deepEqual((await withRepo((repo) => repo.getPayment(id))).lines, swap);
+    assert.equal(swapped.authorizedMinor, 14_400, 'money unchanged');
+    await withRepo((repo) => repo.record(id, { event: event('supplier_ordered', 14_400) }));
+    await withRepo((repo) => repo.record(id, { action: { kind: 'capture', amountMinor: 6000, final: false }, event: event('captured', 6000) }));
+    await assert.rejects(withRepo((repo) => repo.record(id, { patch: { lines: swap }, event: event('cart_negotiated', 14_400) })), (e) => e instanceof LedgerError && e.code === 'lines_locked', 'after a charge');
+    const kinds = (await withRepo((repo) => repo.listEvents(id))).map((e) => e.kind);
+    assert.ok(kinds.includes('cart_negotiated') && kinds.includes('supplier_ordered'));
+  });
+
   t('invoice matches are stored per delivery, extracted lines kept as plain data', async () => {
     const { id } = await withRepo((repo) => repo.createPayment(newPayment(), event('policy_evaluated', 14_400)));
     const delivery = await withRepo((repo) => repo.recordDelivery({

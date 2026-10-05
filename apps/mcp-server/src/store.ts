@@ -110,6 +110,8 @@ export interface ShopRepository {
   today(): Promise<string>;
   listStock(): Promise<StockRow[]>;
   searchProducts(query: string, limit: number): Promise<ProductMatch[]>;
+  /** Exact lookup in the shop's own catalog. */
+  productBySku(sku: string): Promise<{ readonly sku: string; readonly name: string } | null>;
   salesTotals(startDate: string, endDate: string): Promise<SalesTotals>;
   salesBySku(startDate: string, endDate: string): Promise<SkuSales[]>;
   listSuppliers(): Promise<Supplier[]>;

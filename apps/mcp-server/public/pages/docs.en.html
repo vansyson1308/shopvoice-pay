@@ -44,6 +44,7 @@
 <tr><td><code>confirm_reorder</code></td><td>Confirms those drafts and pays each supplier through PayPal within your spending rules: held until delivery, approval asked when over the rules, blocked when not allowed</td><td>"Yes, confirm it"</td><td>write (Claude asks you first)</td></tr>
 <tr><td><code>get_payment_status</code></td><td>Where each supplier payment stands: waiting for approval, held, charged, released, refunded or blocked; when the hold ends</td><td>"Did the egg payment go through?"</td><td>read</td></tr>
 <tr><td><code>record_delivery</code></td><td>Records what arrived; charges only for that and releases the rest of the hold, then pays the supplier</td><td>"Only 8 crates of milk came"</td><td>write (Claude asks you first)</td></tr>
+<tr><td><code>negotiate_cart</code></td><td>Places a held order with the supplier's ordering agent (simulated, implementing PayPal's Cart API spec): confirms stock and price, and accepts a substitution only within your rules. Runs automatically after each hold; ask to retry or for the supplier order number</td><td>"Did the egg supplier get the order?"</td><td>write (Claude asks you first)</td></tr>
 <tr><td><code>request_refund</code></td><td>Refunds a supplier charge to your PayPal, in two steps</td><td>"Refund the bread, it was stale"</td><td>write (Claude asks you first)</td></tr>
 <tr><td><code>get_spend_summary</code></td><td>Supplier spend today and this week against your budgets, money on hold, approvals waiting</td><td>"How much have I spent on suppliers this week?"</td><td>read</td></tr>
 <tr><td><code>explain_payment</code></td><td>Why a payment was paid, held for your approval or blocked, and what happened since</td><td>"Why did the egg order need my OK?"</td><td>read</td></tr>
@@ -89,7 +90,7 @@
 
 <h2 id="changelog">Changelog</h2>
 <ul>
-<li><b>0.3.0 (2026-10)</b>: ShopVoice Pay. Supplier payments through PayPal (hold until delivery, charge only what arrived, payouts to suppliers, refunds), spending rules enforced by a deterministic rules engine, owner approvals (console, voice, an app's confirmation form, or PayPal's page), a payment ledger, 7 new tools, and the voice console with a private sample shop per visitor.</li>
+<li><b>0.3.0 (2026-10)</b>: ShopVoice Pay. Supplier payments through PayPal (hold until delivery, charge only what arrived, payouts to suppliers, refunds), spending rules enforced by a deterministic rules engine, owner approvals (console, voice, an app's confirmation form, or PayPal's page), a payment ledger, 8 new tools including <code>negotiate_cart</code> with simulated supplier agents implementing PayPal's Cart API spec, invoice photo 3-way match, and the voice console with a private sample shop per visitor.</li>
 <li><b>0.2.0 (2026-10)</b>: inherited from GroceryClaw's ShopVoice (MIT): OAuth 2.1 sign-in, a demo shop on sign-up, read-only mode and the account page.</li>
 <li><b>0.1.0 (2026-09)</b>: inherited: voice-first stock and sales tools, two-step reorders, per-shop isolation with Postgres row-level security.</li>
 </ul>

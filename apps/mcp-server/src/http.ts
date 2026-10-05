@@ -1,3 +1,6 @@
+import { handleCartHttp } from '../../supplier-agent/dist/index.js';
+import type { SupplierAgent } from '../../supplier-agent/dist/index.js';
+import type { PublicJwk } from '../../../packages/common/dist/index.js';
 import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
@@ -70,6 +73,10 @@ export interface McpHttpDeps {
   readonly owner?: OwnerApi;
   /** "Try the demo" visitor shops, created by the console (POST /owner/demo-shops). */
   readonly demoShops?: DemoShops;
+  /** Simulated supplier agents (PayPal Cart API merchant spec), served at /supplier-agent/<code>/merchant-cart. */
+  readonly supplierAgent?: SupplierAgent;
+  /** The buyer agent's public keys, published for supplier agents at /.well-known/buyer-agent-jwks.json. */
+  readonly buyerJwks?: readonly PublicJwk[];
 }
 
 /**
@@ -458,6 +465,11 @@ export function createMcpHttpHandler(deps: McpHttpDeps): McpHttpHandler {
           await deps.owner.handleWebhook(req, res);
           return;
         }
+        if (url.pathname === '/.well-known/buyer-agent-jwks.json' && req.method === 'GET' && deps.buyerJwks?.length) {
+          sendJson(res, 200, { keys: deps.buyerJwks });
+          return;
+        }
+        if (deps.supplierAgent && url.pathname.startsWith('/supplier-agent/') && (await handleCartHttp(deps.supplierAgent, '/supplier-agent', req, res, url))) return;
         if (url.pathname === '/owner/demo-shops' && req.method === 'POST') {
           await handleDemoShop(req, res);
           return;

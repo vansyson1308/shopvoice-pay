@@ -11,3 +11,4 @@ export * from './pg.js';
 export * from './product-search.js';
 export * from './http-security.js';
 export * from './client-ip.js';
+export * from './jwt-rs256.js';

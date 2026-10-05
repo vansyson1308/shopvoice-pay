@@ -31,7 +31,7 @@ test('tool metadata: titles, read/write hints, short names, neutral descriptions
     const token = await oauthToken(srv);
     const s = await mcpSession(srv, token);
     const tools = await listTools(srv, token, s.session);
-    assert.equal(tools.length, 16);
+    assert.equal(tools.length, 17);
     for (const t of tools) {
       assert.ok(t.name.length <= 64, t.name);
       assert.ok(t.title && t.annotations?.title, `${t.name} has a title`);
@@ -47,7 +47,7 @@ test('tool metadata: titles, read/write hints, short names, neutral descriptions
     const reads = tools.filter((t) => t.annotations.readOnlyHint === true).map((t) => t.name).sort();
     assert.deepEqual(reads, ['explain_payment', 'get_daily_briefing', 'get_invoice_status', 'get_low_stock', 'get_payment_status', 'get_sales_summary',
       'get_spend_summary', 'get_spending_policy', 'get_stock_level', 'get_top_movers', 'suggest_reorder']);
-    for (const name of ['confirm_reorder', 'record_delivery', 'request_refund', 'set_spending_policy']) {
+    for (const name of ['confirm_reorder', 'record_delivery', 'request_refund', 'set_spending_policy', 'negotiate_cart']) {
       assert.equal(byName[name].annotations.destructiveHint, true, `Claude asks the user before ${name}`);
     }
   } finally {

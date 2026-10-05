@@ -1,8 +1,17 @@
 {
   "files": [],
   "references": [
-    { "path": "packages/common" },
-    { "path": "apps/mcp-server" },
-    { "path": "apps/console" }
+    {
+      "path": "packages/common"
+    },
+    {
+      "path": "apps/mcp-server"
+    },
+    {
+      "path": "apps/supplier-agent"
+    },
+    {
+      "path": "apps/console"
+    }
   ]
 }

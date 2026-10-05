@@ -1,3 +1,4 @@
+import { loadSupplierAgents } from './supplier/setup.js';
 import { createServer } from 'node:http';
 import { createLogger, createPgPool } from '../../../packages/common/dist/index.js';
 import type { LogLevel } from '../../../packages/common/dist/index.js';
@@ -25,6 +26,8 @@ interface DemoSeedModule {
   buildSandboxTenantData(locale: Locale, anchorDate?: string, env?: Record<string, string | undefined>): MemoryTenantData;
   SANDBOX_PROFILES: { en: { shop_name: string } };
   DEMO_TENANT_ID: string;
+  SUPPLIERS: { code: string; name: string }[];
+  PRODUCTS: [string, string, string, number, number, number, number, string, boolean][];
 }
 
 async function loadSeed(): Promise<DemoSeedModule> {
@@ -89,9 +92,15 @@ async function assertRlsBoundLogin(pool: { query(text: string): Promise<{ rows: 
 async function main(): Promise<void> {
   const config = loadMcpServerConfig(process.env);
   const payments = loadPaymentsSetup(process.env, logger);
+  const suppliers = loadSupplierAgents(process.env, await loadSeed(), logger);
+  payments.service.useAfterAuthorized(suppliers.orders);
   const { store, oauthStore, demoShops } = await createStores(payments);
   const owner = createOwnerApi({ store, payments, logger, resetDemo: (tenantId) => demoShops.reset(tenantId) });
-  const deps: McpHttpDeps = { store, config, logger, payments: payments.service, owner, demoShops, ...(oauthStore ? { oauth: { store: oauthStore } } : {}) };
+  const deps: McpHttpDeps = {
+    store, config, logger, payments: payments.service, owner, demoShops, buyerJwks: suppliers.jwks,
+    ...(suppliers.agent ? { supplierAgent: suppliers.agent } : {}),
+    ...(oauthStore ? { oauth: { store: oauthStore } } : {})
+  };
   const handler = createMcpHttpHandler(deps);
   const server = createServer((req, res) => {
     void handler.handle(req, res);

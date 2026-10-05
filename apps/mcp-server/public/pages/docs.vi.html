@@ -50,6 +50,7 @@
 <tr><td><code>confirm_reorder</code></td><td>Xác nhận các bản nháp và thanh toán cho từng nhà cung cấp qua PayPal trong phạm vi quy tắc chi tiêu: giữ tiền tới khi giao hàng, hỏi bạn duyệt khi vượt quy tắc, chặn khi không được phép</td><td>"Yes, confirm it"</td><td>ghi (Claude hỏi bạn trước)</td></tr>
 <tr><td><code>get_payment_status</code></td><td>Tình trạng từng khoản thanh toán: chờ duyệt, đang giữ, đã thu, đã giải phóng, đã hoàn tiền hay bị chặn; khi nào hết thời hạn giữ</td><td>"Did the egg payment go through?"</td><td>đọc</td></tr>
 <tr><td><code>record_delivery</code></td><td>Ghi nhận hàng đã tới; chỉ thu tiền phần đó và giải phóng phần còn lại của khoản giữ, rồi trả cho nhà cung cấp</td><td>"Only 8 crates of milk came"</td><td>ghi (Claude hỏi bạn trước)</td></tr>
+<tr><td><code>negotiate_cart</code></td><td>Gửi đơn đang giữ tiền tới trợ lý đặt hàng của nhà cung cấp (mô phỏng, theo đặc tả Cart API của PayPal): xác nhận tồn kho và giá, chỉ chấp nhận hàng thay thế trong phạm vi quy tắc của bạn. Tự chạy sau mỗi lần giữ tiền; hỏi để thử lại hoặc để biết số đơn của nhà cung cấp</td><td>"Did the egg supplier get the order?"</td><td>ghi (Claude hỏi bạn trước)</td></tr>
 <tr><td><code>request_refund</code></td><td>Hoàn một khoản đã thu của nhà cung cấp về PayPal của bạn, qua hai bước</td><td>"Refund the bread, it was stale"</td><td>ghi (Claude hỏi bạn trước)</td></tr>
 <tr><td><code>get_spend_summary</code></td><td>Chi cho nhà cung cấp hôm nay và tuần này so với ngân sách, số tiền đang giữ, các khoản chờ duyệt</td><td>"How much have I spent on suppliers this week?"</td><td>đọc</td></tr>
 <tr><td><code>explain_payment</code></td><td>Vì sao một khoản được trả, phải chờ bạn duyệt hay bị chặn, và chuyện gì đã xảy ra sau đó</td><td>"Why did the egg order need my OK?"</td><td>đọc</td></tr>
@@ -100,7 +101,8 @@
   <li>thanh toán cho nhà cung cấp qua PayPal: giữ tiền tới khi giao hàng, chỉ thu phần đã tới, chuyển tiền cho nhà cung cấp, hoàn tiền;</li>
   <li>quy tắc chi tiêu được thực thi bởi một bộ quy tắc tất định;</li>
   <li>chủ cửa hàng duyệt trên console, bằng giọng nói, trong biểu mẫu xác nhận của ứng dụng, hoặc trên trang PayPal;</li>
-  <li>sổ cái thanh toán và 7 công cụ mới;</li>
+  <li>sổ cái thanh toán và 8 công cụ mới, gồm <code>negotiate_cart</code> với trợ lý nhà cung cấp mô phỏng theo đặc tả Cart API của PayPal;</li>
+  <li>đối chiếu 3 chiều từ ảnh hóa đơn;</li>
   <li>console giọng nói, với cửa hàng mẫu riêng cho mỗi khách.</li>
   </ul></li>
 <li><b>0.2.0 (2026-10)</b>: kế thừa từ ShopVoice của GroceryClaw (MIT): đăng nhập OAuth 2.1, cửa hàng demo khi đăng ký, chế độ chỉ đọc và trang tài khoản.</li>
