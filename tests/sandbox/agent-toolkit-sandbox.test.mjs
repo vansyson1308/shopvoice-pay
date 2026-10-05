@@ -1,8 +1,9 @@
 // PayPal Agent Toolkit behind ShopVoice's policy layer, against the real
 // PayPal sandbox: tracking added to a real capture after delivery, the ledger
 // cross-checked with transaction search (which lags in the sandbox), and a
-// catering invoice created and sent to the supplier's sandbox account.
-// Needs SANDBOX_VAULT_ID and SANDBOX_SUPPLIER_EMAIL; skipped otherwise.
+// catering invoice created and sent. The invoice and transaction-search test
+// needs only sandbox app credentials; the tracking test also needs
+// SANDBOX_VAULT_ID and SANDBOX_SUPPLIER_EMAIL and is skipped without them.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { encryptPayload } from '../../packages/common/dist/index.js';
@@ -14,10 +15,33 @@ import { ToolkitGateway, loadToolkitGatewayConfig, recipientAllowed } from '../.
 
 const vaultId = process.env.SANDBOX_VAULT_ID ?? '';
 const supplierEmail = process.env.SANDBOX_SUPPLIER_EMAIL ?? '';
-const enabled = !!process.env.PAYPAL_CLIENT_ID && !!vaultId && !!supplierEmail;
+const hasApp = !!process.env.PAYPAL_CLIENT_ID;
+const enabled = hasApp && !!vaultId && !!supplierEmail;
 const MEK = Buffer.alloc(32, 5).toString('base64');
 
-test('sandbox: Agent Toolkit tracking, records cross-check and catering invoice', { skip: !enabled }, async () => {
+test('sandbox: Agent Toolkit catering invoice (create, send, read back) and transaction search', { skip: !hasApp }, async () => {
+  const runtime = createPayPalRuntime({ ...process.env, PAYPAL_MODE: 'sandbox' });
+  const runner = createToolkitRunner(runtime);
+  const gateway = new ToolkitGateway(runner, loadToolkitGatewayConfig({}));
+  const repo = new MemoryPaymentsRepository(new MemoryPaymentsData({}), Date.now);
+  const ctx = { repo, correlationId: `sbx-cat-${Date.now()}`, supplierName: () => '' };
+  // A reserved example.com address: the sandbox sends no real email.
+  const invoice = await gateway.prepareCatering(ctx, { customerEmail: 'catering.customer@personal.example.com', customerName: 'Sandbox catering customer', items: [{ name: 'Sandwich platter, serves 10', qty: 2, unitPriceMinor: 4500 }], note: 'ShopVoice Pay CI sandbox test', currency: 'USD', createdBy: 'agent' });
+  const sent = await gateway.sendCatering(ctx, invoice.id, "Maria's Corner Market");
+  assert.equal(sent.status, 'sent');
+  assert.match(sent.paypalInvoiceId, /^INV2-/);
+  const live = await runner.run('get_invoice', { invoice_id: sent.paypalInvoiceId });
+  assert.equal(live.status, 'SENT');
+  assert.equal(live.amount?.value, '90.00');
+  // Sending again replays nothing new.
+  assert.equal((await gateway.sendCatering(ctx, invoice.id, "Maria's Corner Market")).paypalInvoiceId, sent.paypalInvoiceId);
+  // Transaction search answers for a 7-day window (contents lag in the sandbox).
+  const now = Date.now();
+  const search = await runner.run('list_transactions', { start_date: new Date(now - 7 * 86_400_000).toISOString(), end_date: new Date(now).toISOString(), transaction_status: 'S' });
+  assert.ok(Array.isArray(search.transaction_details));
+});
+
+test('sandbox: Agent Toolkit tracking on a real capture, records cross-check, invoice to the supplier account', { skip: !enabled }, async () => {
   const runtime = createPayPalRuntime({ ...process.env, PAYPAL_MODE: 'sandbox' });
   const gateway = new ToolkitGateway(createToolkitRunner(runtime), loadToolkitGatewayConfig({}));
   const data = new MemoryPaymentsData({
