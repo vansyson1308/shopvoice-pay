@@ -6,7 +6,7 @@ import { randomUUID } from 'node:crypto';
 import type { EnvelopeEncrypted } from '../../../../packages/common/dist/index.js';
 import type { SpendPolicy } from '../policy/policy-engine.js';
 import type { PriceObservation } from '../policy/anomaly.js';
-import { applyAction, newPaymentState } from './state-machine.js';
+import { applyAction, assertLineSwap, newPaymentState } from './state-machine.js';
 import type {
   DeliveryRecord,
   InvoiceMatchRecord, NewPayment, NewPaymentEvent, PaymentEventRecord, PaymentMethodStatus, PaymentPatch, PaymentRecord,
@@ -238,6 +238,7 @@ export class MemoryPaymentsRepository implements PaymentsRepository {
     if (!current) throw new LedgerConflictError('not_found', 'payment not found');
     const money = change.action ? applyAction(current, change.action) : current;
     const patch = change.patch ?? {};
+    if (patch.lines) assertLineSwap(money, patch.lines);
     const next: PaymentRecord = {
       ...current,
       ...money,
@@ -249,6 +250,7 @@ export class MemoryPaymentsRepository implements PaymentsRepository {
       ...(patch.honorPeriodEndsAt !== undefined ? { honorPeriodEndsAt: patch.honorPeriodEndsAt } : {}),
       ...(patch.approvalTokenHash !== undefined ? { approvalTokenHash: patch.approvalTokenHash } : {}),
       ...(patch.approvalExpiresAt !== undefined ? { approvalExpiresAt: patch.approvalExpiresAt } : {}),
+      ...(patch.lines !== undefined ? { lines: patch.lines.map((l) => ({ ...l })) } : {}),
       updatedAt: this.iso()
     };
     this.appendEvent(next, change.event);

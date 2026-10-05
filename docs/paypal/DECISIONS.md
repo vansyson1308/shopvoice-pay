@@ -284,3 +284,28 @@ A full id of either family is accepted too.
 - the same order with a $350 fee and a note to AI.
 
 **Deviation from the original layout.** The extractor lives in the console (`apps/console/src/invoice-extract.ts`), where the Claude credentials are. The match lives in the MCP server, which owns the money.
+
+## D18. Supplier ordering is agent to agent over PayPal's Cart API spec; the rules engine decides substitutions (2026-10-05)
+
+**Decision.** After every PayPal hold, server code acting as ShopVoice's buyer agent places the order with the supplier's agent.
+
+**The supplier side.** It implements the merchant endpoints of PayPal's Cart API v1: create, read, replace and check out, with `validation_issues`. The four demo suppliers' agents are simulated (`apps/supplier-agent`) and labelled everywhere as "Simulated supplier agent implementing PayPal's Cart API spec. In production PayPal Store Sync connects real suppliers."
+
+**Substitutions.**
+- An out-of-stock item may be swapped only through the existing pure `evaluateSubstitution` rule:
+  - same product family and same base units, judged from **our** catalog names, not the supplier's;
+  - price change within `substitution_tolerance_pct`.
+- The new total must also fit inside the hold.
+- The ledger guards the line swap: only while held, nothing charged, never above the hold.
+- Otherwise the order stays as placed, and the owner hears one short sentence.
+
+**Payment tie-in.** Checkout carries the PayPal order id as `payment_method.token`. Capture still waits for delivery (D6).
+
+**Trust.**
+- Calls carry a short-lived RS256 JWT (`merchant_id`, `scope: ["cart"]`), as PayPal does with merchants. The public key is at `/.well-known/buyer-agent-jwks.json`.
+- Supplier text is never spoken, logged as a reason, or shown to the model.
+- An unreachable agent leaves the hold untouched, and the order is retried on `sync`. Request ids make it idempotent.
+
+**`negotiate_cart` tool.** It retries the order or reports the supplier order number. It never charges.
+
+**Hosting.** The agents are embedded in the MCP server by default, so there is no extra service to pay for. `SUPPLIER_AGENT_URL` targets a standalone deployment. See `docs/paypal/SUPPLIER_AGENT.md` for the sequence diagram.

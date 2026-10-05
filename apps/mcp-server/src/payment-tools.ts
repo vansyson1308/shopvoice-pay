@@ -708,6 +708,43 @@ export const recordDelivery = defineTool({
   }
 });
 
+// ---------- supplier agent: the cart behind a held order ----------
+
+export const negotiateCart = defineTool({
+  name: 'negotiate_cart',
+  title: "Place a held order with the supplier's agent",
+  description: "Checks a held supplier order with the supplier's ordering agent (simulated, implementing PayPal's Cart API spec): confirms stock and price, accepts a substitution only when the owner's rules allow it (same product, same units, price within the substitution limit, never above the money on hold), and places the supplier order. This runs automatically after every hold; call it to retry, or to hear where the supplier order stands. It never charges money.",
+  input: { ...lookupInput },
+  output: {
+    status: z.enum(['ordered', 'needs_owner', 'pending', 'not_held', 'not_set_up', 'not_found']),
+    supplier_order: z.string().nullable(),
+    simulated: z.boolean(),
+    payment: paymentSchema.nullable()
+  },
+  annotations: SESSION_WRITE,
+  session: true,
+  async run(ctx, args) {
+    const none = { supplier_order: null, simulated: true, payment: null };
+    if (!ctx.payments) return { speech: NOT_SET_UP, data: { status: 'not_set_up' as const, ...none } };
+    const bridge = ctx.payments;
+    const names = await supplierNames(ctx.repo);
+    const open = await findPayment(bridge, names, args, (p) => p.status === 'authorized' || p.status === 'partially_captured' || p.status === 'captured');
+    if (!open) return { speech: args.supplier ? `I don't see a held order for "${args.supplier}".` : "I don't see a held order to place.", data: { status: 'not_found' as const, ...none } };
+    const name = nameOf(names, open.supplierCode);
+    const out = await bridge.service.supplierOrder(bridge.ctx, open.paymentId);
+    const speech = out.status === 'ordered'
+      ? `${name} has the order (number ${out.orderNumber ?? 'pending'}, simulated supplier agent).${out.note ? ` ${out.note}` : ''}`
+      : out.status === 'needs_owner'
+        ? `${out.reason ?? `${name} could not fill the order as placed`}. Nothing is charged unless it arrives.`
+        : out.status === 'pending'
+          ? `I couldn't reach ${name}'s ordering system yet. The money stays on hold and I'll try again.`
+          : out.status === 'not_set_up'
+            ? 'Supplier ordering agents are not set up here.'
+            : `That order from ${name} has no money on hold, so there is nothing to place.`;
+    return { speech: fitSpeech([speech, speech.split('. ')[0] + '.']), data: { status: out.status, supplier_order: out.orderNumber, simulated: true, payment: paymentOut(ctx, out.payment, names) } };
+  }
+});
+
 // ---------- refunds (two-step) ----------
 
 const REFUND_TTL_SECONDS = 300;
@@ -781,4 +818,4 @@ export const requestRefund = defineTool({
   }
 });
 
-export const PAYMENT_TOOLS = [confirmReorder, getSpendingPolicy, setSpendingPolicy, getPaymentStatus, getSpendSummary, explainPayment, recordDelivery, requestRefund] as const;
+export const PAYMENT_TOOLS = [confirmReorder, getSpendingPolicy, setSpendingPolicy, getPaymentStatus, getSpendSummary, explainPayment, recordDelivery, requestRefund, negotiateCart] as const;

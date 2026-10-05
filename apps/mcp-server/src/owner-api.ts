@@ -202,7 +202,7 @@ export function createOwnerApi(deps: OwnerApiDeps) {
   async function context(tenantId: string): Promise<{ ctx: ServiceContext; names: Map<string, string>; repo: ReturnType<typeof autoCommitRepository> }> {
     const repo = autoCommitRepository(store, tenantId);
     const names = new Map((await repo.listSuppliers()).map((s) => [s.code, s.name]));
-    return { repo, names, ctx: { repo: repo.payments, correlationId: randomUUID(), supplierName: (code) => names.get(code) ?? code } };
+    return { repo, names, ctx: { repo: repo.payments, correlationId: randomUUID(), supplierName: (code) => names.get(code) ?? code, productName: async (sku) => (await repo.productBySku(sku))?.name ?? null } };
   }
 
   async function mustPayment(repo: ReturnType<typeof autoCommitRepository>, id: string): Promise<PaymentRecord> {

@@ -131,3 +131,13 @@ export function checkInvariants(s: MoneyState): string[] {
   if (s.settledMinor > s.capturedMinor) broken.push('settled <= captured');
   return broken;
 }
+
+/** New order lines (an accepted substitution) may only replace lines on a held, uncharged payment, within the hold. */
+export function assertLineSwap(current: MoneyState & { readonly status: PaymentStatus }, lines: readonly { readonly qty: number; readonly unitCostMinor: number }[]): void {
+  if (current.status !== 'authorized' || current.capturedMinor !== 0) throw new LedgerError('lines_locked', 'Order lines can only change while the money is held and nothing was charged');
+  if (lines.length === 0 || lines.some((l) => !Number.isSafeInteger(l.qty) || l.qty <= 0 || !Number.isSafeInteger(l.unitCostMinor) || l.unitCostMinor < 0)) {
+    throw new LedgerError('invalid_lines', 'Order lines must have positive quantities and prices');
+  }
+  const total = lines.reduce((acc, l) => acc + l.qty * l.unitCostMinor, 0);
+  if (total > current.authorizedMinor) throw new LedgerError('over_hold', 'New order lines cost more than the money on hold');
+}

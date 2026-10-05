@@ -43,6 +43,13 @@ export interface ServiceContext {
   readonly repo: PaymentsRepository;
   readonly correlationId: string;
   readonly supplierName: (code: string) => string;
+  /** The shop's own catalog name for a SKU (supplier-agent substitutions are checked against it). */
+  readonly productName?: (sku: string) => Promise<string | null>;
+}
+
+/** Runs after PayPal places a hold (the supplier agent's cart checkout). Must not throw. */
+export interface AfterAuthorized {
+  afterAuthorized(ctx: ServiceContext, payment: PaymentRecord): Promise<{ payment: PaymentRecord; note: string | null }>;
 }
 
 interface SealedMethod {
@@ -146,7 +153,37 @@ function money(amountMinor: number, currency: string): string {
 }
 
 export class PaymentsService {
+  private afterHold: AfterAuthorized | null = null;
+  private readonly notes = new Map<string, string>();
+
   constructor(private readonly paypal: PayPalClient, private readonly config: PaymentsServiceConfig, private readonly now: () => number = Date.now) {}
+
+  /** Wires the supplier agent's cart checkout (or nothing) to run after every hold. */
+  useAfterAuthorized(hook: AfterAuthorized | null): void {
+    this.afterHold = hook;
+  }
+
+  private async onHold(ctx: ServiceContext, payment: PaymentRecord): Promise<PaymentRecord> {
+    if (!this.afterHold || payment.status !== 'authorized') return payment;
+    try {
+      const out = await this.afterHold.afterAuthorized(ctx, payment);
+      if (out.note) {
+        if (this.notes.size > 1000) this.notes.clear();
+        this.notes.set(payment.id, out.note);
+      }
+      return out.payment;
+    } catch {
+      // The hold stands either way; the supplier order is retried on the next sync.
+      return payment;
+    }
+  }
+
+  /** A note from the supplier agent about this payment, spoken once. */
+  private takeNote(paymentId: string): string {
+    const note = this.notes.get(paymentId);
+    this.notes.delete(paymentId);
+    return note ? ` ${note}` : '';
+  }
 
   // ---------- Connect PayPal (vault, save without purchase) ----------
 
@@ -272,7 +309,7 @@ export class PaymentsService {
     if (!method) throw new PaymentFlowError('no_payment_method', 'PayPal is not connected');
     const authorized = await this.authorizeFromVault(ctx, payment, method.vaultId, 'agent');
     const speech = authorized.status === 'authorized'
-      ? `${money(authorized.authorizedMinor, authorized.currency)} to ${supplierName} is held on your PayPal, not charged until delivery.`
+      ? `${money(authorized.authorizedMinor, authorized.currency)} to ${supplierName} is held on your PayPal, not charged until delivery.${this.takeNote(authorized.id)}`
       : `I couldn't place the hold with PayPal for ${supplierName}. Nothing was charged.`;
     return { payment: toPublicPayment(authorized), policy, approval: null, speech };
   }
@@ -366,7 +403,7 @@ export class PaymentsService {
     if (method) {
       const result = await this.authorizeFromVault(ctx, approved, method.vaultId, 'owner');
       const speech = result.status === 'authorized'
-        ? `Approved. ${money(result.authorizedMinor, result.currency)} to ${name} is held, not charged until delivery.`
+        ? `Approved. ${money(result.authorizedMinor, result.currency)} to ${name} is held, not charged until delivery.${this.takeNote(result.id)}`
         : `PayPal didn't accept the hold for ${name}. Nothing was charged.`;
       return { payment: toPublicPayment(result), payerActionUrl: null, speech };
     }
@@ -448,7 +485,7 @@ export class PaymentsService {
       return ctx.repo.record(payment.id, { action: { kind: 'fail' }, event: { kind: 'failed', amountMinor: payment.requestedMinor, actor: 'paypal', reason: `PayPal returned no usable hold (${auth?.status ?? order.status})`, paypalRequestId: requestId, correlationId: ctx.correlationId } });
     }
     const created = Date.parse(auth.create_time ?? '') || this.now();
-    return ctx.repo.record(payment.id, {
+    const held = await ctx.repo.record(payment.id, {
       action: { kind: 'authorize', amountMinor: payment.requestedMinor },
       patch: {
         ...extra,
@@ -459,6 +496,7 @@ export class PaymentsService {
       },
       event: { kind: 'authorized', amountMinor: payment.requestedMinor, actor, reason: 'Held on PayPal until delivery', paypalRequestId: requestId, paypalResourceId: auth.id, correlationId: ctx.correlationId }
     });
+    return this.onHold(ctx, held);
   }
 
   // ---------- Delivery: pay only for what arrived ----------
@@ -618,6 +656,27 @@ export class PaymentsService {
     return { payment: toPublicPayment(updated), paidMinor: due };
   }
 
+  /**
+   * The supplier order for a held payment (supplier agent, PayPal Cart API spec):
+   * places it now if it has not gone through yet, and reports where it stands.
+   */
+  async supplierOrder(ctx: ServiceContext, paymentId: string): Promise<{ payment: PublicPayment; status: 'ordered' | 'needs_owner' | 'pending' | 'not_held' | 'not_set_up'; orderNumber: string | null; reason: string | null; note: string | null }> {
+    let payment = await this.mustGet(ctx, paymentId);
+    if (!this.afterHold) return { payment: toPublicPayment(payment), status: 'not_set_up', orderNumber: null, reason: null, note: null };
+    if (payment.status === 'authorized') payment = await this.onHold(ctx, payment);
+    const note = this.takeNote(payment.id).trim() || null;
+    const events = await ctx.repo.listEvents(payment.id);
+    const ordered = [...events].reverse().find((e) => e.kind === 'supplier_ordered');
+    const negotiated = [...events].reverse().find((e) => e.kind === 'cart_negotiated');
+    if (ordered) {
+      const number = typeof ordered.detail?.merchant_order_number === 'string' ? ordered.detail.merchant_order_number : null;
+      return { payment: toPublicPayment(payment), status: 'ordered', orderNumber: number, reason: negotiated?.detail?.outcome === 'substituted' ? negotiated.reason : null, note };
+    }
+    if (negotiated?.detail?.outcome === 'needs_owner') return { payment: toPublicPayment(payment), status: 'needs_owner', orderNumber: null, reason: negotiated.reason, note };
+    const held = payment.status === 'authorized' || payment.status === 'partially_captured';
+    return { payment: toPublicPayment(payment), status: held ? 'pending' : 'not_held', orderNumber: null, reason: null, note };
+  }
+
   // ---------- Status sync (polling fallback; webhooks call the same path) ----------
 
   /** Reconciles the ledger with PayPal's view of the hold (expiry, an outside void). */
@@ -630,6 +689,8 @@ export class PaymentsService {
       const method = await this.activeVault(ctx.repo);
       if (method) return toPublicPayment(await this.authorizeFromVault(ctx, payment, method.vaultId, payment.approvedBy ? 'owner' : 'agent'));
     }
+    // The supplier order may not have gone through yet (agent unreachable): try again.
+    if (payment.status === 'authorized') payment = await this.onHold(ctx, payment);
     if ((payment.status === 'authorized' || payment.status === 'partially_captured') && payment.paypalAuthorizationId && heldMinor(payment) > 0) {
       const auth = await getAuthorization(this.paypal, payment.paypalAuthorizationId, ctx.correlationId);
       if (auth.status === 'VOIDED' || auth.status === 'EXPIRED') {

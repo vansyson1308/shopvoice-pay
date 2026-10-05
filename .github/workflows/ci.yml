@@ -96,7 +96,7 @@ jobs:
         run: docker build -f apps/console/Dockerfile -t shopvoice-console .
       - name: Images carry what the deploy needs, and no secrets
         run: |
-          docker run --rm shopvoice-mcp sh -c 'psql --version && test -f scripts/deploy/db_prepare.mjs && test -d db/migrations && test ! -e .env && test -d node_modules/pg && ! test -d node_modules/typescript'
+          docker run --rm shopvoice-mcp sh -c 'psql --version && test -f scripts/deploy/db_prepare.mjs && test -f apps/supplier-agent/dist/index.js && test -d db/migrations && test ! -e .env && test -d node_modules/pg && ! test -d node_modules/typescript'
           docker run --rm shopvoice-console sh -c 'test -f apps/console/static/index.html && test ! -e .env && ! test -d node_modules/typescript'
 
   sandbox:

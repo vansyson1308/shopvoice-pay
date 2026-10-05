@@ -32,7 +32,8 @@ export type PaymentDecision = 'autopay' | 'step_up' | 'blocked';
 export type ApprovedBy = 'owner_voice' | 'owner_tap' | 'owner_paypal' | 'owner_elicitation';
 export type EventKind =
   | 'policy_evaluated' | 'approval_requested' | 'approved' | 'declined' | 'authorized' | 'reauthorized'
-  | 'captured' | 'voided' | 'refunded' | 'payout_sent' | 'payout_completed' | 'failed' | 'webhook_received';
+  | 'captured' | 'voided' | 'refunded' | 'payout_sent' | 'payout_completed' | 'failed' | 'webhook_received'
+  | 'cart_negotiated' | 'supplier_ordered';
 export type EventActor = 'agent' | 'owner' | 'system' | 'paypal';
 
 export interface PaymentRecord extends MoneyState {
@@ -114,6 +115,11 @@ export interface PaymentPatch {
   readonly honorPeriodEndsAt?: string;
   readonly approvalTokenHash?: string | null;
   readonly approvalExpiresAt?: string | null;
+  /**
+   * A supplier substitution accepted by the rules: new order lines. Only while
+   * the money is held, before any charge, and never above the hold (guarded).
+   */
+  readonly lines?: readonly PolicyDraftLine[];
 }
 
 export interface NewPaymentEvent {

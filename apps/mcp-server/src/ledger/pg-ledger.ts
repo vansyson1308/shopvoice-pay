@@ -5,7 +5,7 @@
 import type { EnvelopeEncrypted, PgClientLike } from '../../../../packages/common/dist/index.js';
 import type { PolicyDraftLine, PolicyReason, SpendPolicy } from '../policy/policy-engine.js';
 import type { PriceObservation } from '../policy/anomaly.js';
-import { applyAction } from './state-machine.js';
+import { applyAction, assertLineSwap } from './state-machine.js';
 import type { LedgerAction, PaymentStatus } from './state-machine.js';
 import { LedgerConflictError } from './memory-ledger.js';
 import type {
@@ -298,6 +298,7 @@ export class PgPaymentsRepository implements PaymentsRepository {
     const current = toPayment(locked.rows[0]);
     const money = change.action ? applyAction(current, change.action) : current;
     const p = change.patch ?? {};
+    if (p.lines) assertLineSwap(money, p.lines);
     const { rows } = await this.client.query(
       `UPDATE supplier_payments SET
          status = $2, amount_authorized_minor = $3, amount_captured_minor = $4, amount_voided_minor = $5,
@@ -310,13 +311,15 @@ export class PgPaymentsRepository implements PaymentsRepository {
          honor_period_ends_at = COALESCE($13::timestamptz, honor_period_ends_at),
          approval_token_hash = CASE WHEN $14 THEN $15 ELSE approval_token_hash END,
          approval_expires_at = CASE WHEN $16 THEN $17::timestamptz ELSE approval_expires_at END,
+         lines = COALESCE($18::jsonb, lines),
          updated_at = now()
        WHERE tenant_id = _rls_tenant_id() AND id = $1
        RETURNING ${PAYMENT_COLUMNS}`,
       [id, money.status, money.authorizedMinor, money.capturedMinor, money.voidedMinor, money.refundedMinor, money.settledMinor,
         p.approvedBy ?? null, p.paypalOrderId ?? null, p.paypalAuthorizationId ?? null, p.addCaptureId ?? null,
         p.authorizationExpiresAt ?? null, p.honorPeriodEndsAt ?? null,
-        p.approvalTokenHash !== undefined, p.approvalTokenHash ?? null, p.approvalExpiresAt !== undefined, p.approvalExpiresAt ?? null]
+        p.approvalTokenHash !== undefined, p.approvalTokenHash ?? null, p.approvalExpiresAt !== undefined, p.approvalExpiresAt ?? null,
+        p.lines ? JSON.stringify(p.lines) : null]
     );
     const next = toPayment(rows[0] as Row);
     await this.insertEvent(next, change.event);

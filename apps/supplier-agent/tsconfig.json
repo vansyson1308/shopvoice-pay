@@ -3,16 +3,11 @@
   "compilerOptions": {
     "rootDir": "src",
     "outDir": "dist",
-    "types": [
-      "node"
-    ]
+    "types": ["node"]
   },
   "references": [
     {
       "path": "../../packages/common"
-    },
-    {
-      "path": "../supplier-agent"
     }
   ],
   "include": [

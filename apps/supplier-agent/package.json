@@ -1,0 +1,19 @@
+{
+  "name": "@shopvoice/supplier-agent",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Simulated supplier seller agent implementing the merchant side of PayPal's Cart API v1 spec, for the ShopVoice Pay demo. In production PayPal Store Sync connects real suppliers.",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -b",
+    "start": "node dist/server.js"
+  },
+  "dependencies": {
+    "@shopvoice/common": "file:../../packages/common"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.4"
+  }
+}

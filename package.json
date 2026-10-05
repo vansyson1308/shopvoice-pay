@@ -27,6 +27,7 @@
     "mcp:token": "node scripts/create_mcp_token.mjs",
     "probe:voice": "node scripts/demo/voice_turn_probe.mjs",
     "start:mcp": "node apps/mcp-server/dist/server.js",
+    "start:supplier-agent": "node apps/supplier-agent/dist/server.js",
     "start:console": "node apps/console/dist/server.js",
     "demo:e2e": "npm run build && node scripts/demo/e2e_voice_flow.mjs",
     "evals": "npm run build && node evals/run_evals.mjs",

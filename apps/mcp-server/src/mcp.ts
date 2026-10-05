@@ -178,7 +178,7 @@ function registerTool(server: McpServer, tool: ToolDefinition<z.ZodRawShape, z.Z
           money: { currency: profile.displayCurrency, minorPerUnit: profile.minorPerUnit },
           confirmTtlSeconds: opts.confirmTtlSeconds,
           payments: opts.payments
-            ? { service: opts.payments, ctx: { repo: repo.payments, correlationId, supplierName: (code: string) => suppliers.get(code) ?? code } }
+            ? { service: opts.payments, ctx: { repo: repo.payments, correlationId, supplierName: (code: string) => suppliers.get(code) ?? code, productName: async (sku: string) => (await repo.productBySku(sku))?.name ?? null } }
             : null,
           approvals: approvalChannel(server, opts, extra.requestId)
         };

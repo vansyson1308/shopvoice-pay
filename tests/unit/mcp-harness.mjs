@@ -39,12 +39,16 @@ export function mockPayments(clock = () => Date.parse(`${ANCHOR}T15:00:00Z`), en
   return loadPaymentsSetup({ PAYPAL_MODE: 'mock', APP_MEK_B64: TEST_MEK, CONSOLE_PUBLIC_URL: 'https://console.test', ...env }, silentLogger, clock);
 }
 
-export async function startMcpServer({ env = {}, store, clock, payments = null, connectTenants = [DEMO_TENANT_ID], resetDemo = null, demoShops = null } = {}) {
+export async function startMcpServer({ env = {}, store, clock, payments = null, connectTenants = [DEMO_TENANT_ID], resetDemo = null, demoShops = null, suppliers = null } = {}) {
   const config = loadMcpServerConfig({ MCP_DATA_BACKEND: 'memory', MCP_ALLOW_LOCALHOST_ORIGINS: 'false', MCP_ALLOWED_ORIGINS: 'https://sim.example', ...env });
   const shopStore = store ?? new MemoryShopStore(twoTenantDataset(), clock);
   if (payments) for (const tenantId of connectTenants) await connectMockPayPal(payments, shopStore, tenantId);
   const owner = payments ? createOwnerApi({ store: shopStore, payments, logger: silentLogger, ...(resetDemo ? { resetDemo } : {}) }) : undefined;
-  const handler = createMcpHttpHandler({ store: shopStore, config, logger: silentLogger, ...(payments ? { payments: payments.service, owner } : {}), ...(demoShops ? { demoShops } : {}) });
+  if (payments && suppliers) payments.service.useAfterAuthorized(suppliers.orders);
+  const handler = createMcpHttpHandler({
+    store: shopStore, config, logger: silentLogger, ...(payments ? { payments: payments.service, owner } : {}), ...(demoShops ? { demoShops } : {}),
+    ...(suppliers?.agent ? { supplierAgent: suppliers.agent } : {}), ...(suppliers ? { buyerJwks: suppliers.jwks } : {})
+  });
   const server = createServer((req, res) => { void handler.handle(req, res); });
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   const { port } = server.address();

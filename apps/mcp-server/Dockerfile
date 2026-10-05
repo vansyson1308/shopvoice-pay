@@ -19,6 +19,8 @@ COPY --from=build /app/package.json ./
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/packages ./packages
 COPY --from=build /app/apps/mcp-server ./apps/mcp-server
+# Simulated supplier agents (PayPal Cart API spec), mounted at /supplier-agent.
+COPY --from=build /app/apps/supplier-agent ./apps/supplier-agent
 COPY db ./db
 # The demo dataset generator backs visitor demo shops; the rest prepares the database.
 COPY scripts/gen_demo_seed.mjs scripts/db_lib.mjs scripts/db_migrate.mjs ./scripts/
