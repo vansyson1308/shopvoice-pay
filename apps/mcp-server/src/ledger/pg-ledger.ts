@@ -9,7 +9,7 @@ import { applyAction } from './state-machine.js';
 import type { LedgerAction, PaymentStatus } from './state-machine.js';
 import { LedgerConflictError } from './memory-ledger.js';
 import type {
-  ApprovedBy, DeliveryOutcome, DeliveryRecord, NewPayment, ReceivedLine, NewPaymentEvent, PaymentDecision, PaymentEventRecord, PaymentMethodStatus, PaymentPatch,
+  ApprovedBy, DeliveryOutcome, DeliveryRecord, InvoiceMatchRecord, NewPayment, ReceivedLine, NewPaymentEvent, PaymentDecision, PaymentEventRecord, PaymentMethodStatus, PaymentPatch,
   PaymentRecord, PaymentsRepository, StoredPaymentMethod, SupplierPayee, EventActor, EventKind
 } from './types.js';
 
@@ -365,6 +365,39 @@ export class PgPaymentsRepository implements PaymentsRepository {
     );
     return rows.map(toDelivery);
   }
+
+  async recordInvoiceMatch(m: Omit<InvoiceMatchRecord, 'id' | 'createdAt'>): Promise<InvoiceMatchRecord> {
+    const { rows } = await this.client.query(
+      `INSERT INTO invoice_matches (tenant_id, delivery_id, extracted_lines, po_lines, result, variance_minor, extractor)
+       VALUES (_rls_tenant_id(), $1, $2::jsonb, $3::jsonb, $4, $5, $6)
+       RETURNING id, delivery_id, extracted_lines, po_lines, result, variance_minor, extractor, created_at`,
+      [m.deliveryId, JSON.stringify(m.extractedLines), JSON.stringify(m.poLines), m.result, m.varianceMinor, m.extractor.slice(0, 80)]
+    );
+    return toInvoiceMatch(rows[0] as Row);
+  }
+
+  async listInvoiceMatches(paymentId: string): Promise<InvoiceMatchRecord[]> {
+    const { rows } = await this.client.query(
+      `SELECT m.id, m.delivery_id, m.extracted_lines, m.po_lines, m.result, m.variance_minor, m.extractor, m.created_at
+         FROM invoice_matches m JOIN deliveries d ON d.id = m.delivery_id AND d.tenant_id = m.tenant_id
+        WHERE m.tenant_id = _rls_tenant_id() AND d.payment_id = $1 ORDER BY m.created_at, m.id`,
+      [paymentId]
+    );
+    return rows.map(toInvoiceMatch);
+  }
+}
+
+function toInvoiceMatch(r: Row): InvoiceMatchRecord {
+  return {
+    id: str(r.id),
+    deliveryId: str(r.delivery_id),
+    extractedLines: (Array.isArray(r.extracted_lines) ? r.extracted_lines : []) as Record<string, unknown>[],
+    poLines: (Array.isArray(r.po_lines) ? r.po_lines : []) as Record<string, unknown>[],
+    result: str(r.result) as InvoiceMatchRecord['result'],
+    varianceMinor: Number(r.variance_minor),
+    extractor: str(r.extractor),
+    createdAt: iso(r.created_at)
+  };
 }
 
 function toDelivery(r: Row): DeliveryRecord {

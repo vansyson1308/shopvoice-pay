@@ -9,6 +9,7 @@
 //  * A step-up is approved outside the model: by the owner's console, by the
 //    MCP client's own confirmation form (elicitation), or on PayPal's page.
 //    If none of those can reach the owner, the payment is declined.
+import { lineMatches } from './reconcile/three-way-match.js';
 import { z } from 'zod';
 import type { DraftRow, ShopRepository } from './store.js';
 import { defineTool, READ_ONLY, moneyOut, hashConfirmationToken, supplierMatches } from './tools.js';
@@ -608,15 +609,6 @@ export const explainPayment = defineTool({
 });
 
 // ---------- deliveries: pay only for what arrived ----------
-
-function lineMatches(line: { sku: string; name: string }, query: string): boolean {
-  const q = query.toLowerCase();
-  if (line.sku.toLowerCase() === q) return true;
-  const words = q.split(/[^a-z0-9]+/).filter((w) => w.length > 1 && !['the', 'of', 'and', 'cases', 'case', 'crates', 'crate'].includes(w));
-  const hay = line.name.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
-  const stem = (w: string) => (w.length > 3 ? w.replace(/s$/, '') : w);
-  return words.length > 0 && words.every((w) => hay.some((h) => h.startsWith(stem(w))));
-}
 
 export const recordDelivery = defineTool({
   name: 'record_delivery',

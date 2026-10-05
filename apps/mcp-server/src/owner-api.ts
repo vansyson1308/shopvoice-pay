@@ -7,6 +7,7 @@
 // by third-party AI clients are refused. Every route runs in the tenant that
 // token resolves to, through PaymentsService, so the same rules, ledger state
 // machine and PayPal-Request-Id discipline apply as for the tools.
+import type { CountedLine, InvoiceLine, ThreeWayResult } from './reconcile/three-way-match.js';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { randomUUID } from 'node:crypto';
 import type { Logger } from '../../../packages/common/dist/index.js';
@@ -157,6 +158,42 @@ function policyFromBody(before: SpendPolicy, b: Record<string, unknown>, supplie
   return next;
 }
 
+const CONTROL = /[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/g;
+
+/** Validates invoice lines from the console: plain data, bounded, nothing else passes. */
+export function invoiceLinesFrom(raw: unknown): InvoiceLine[] {
+  if (!Array.isArray(raw) || raw.length > 40) throw new HttpError(400, 'invalid_field', 'lines must be a list of at most 40 invoice lines');
+  return raw.map((entry) => {
+    const row = (entry ?? {}) as Record<string, unknown>;
+    const description = typeof row.description === 'string' ? row.description.replace(CONTROL, ' ').trim().slice(0, 120) : '';
+    if (!description) throw new HttpError(400, 'invalid_field', 'each invoice line needs a description');
+    const sku = typeof row.sku === 'string' && /^[A-Za-z0-9_-]{1,40}$/.test(row.sku.trim()) ? row.sku.trim().toUpperCase() : null;
+    return { description, sku, quantity: intIn(row.quantity, 0, 100_000, 'quantity'), unitPriceMinor: intIn(row.unit_price_minor, 0, 10_000_000, 'unit_price_minor') };
+  });
+}
+
+function countedFrom(raw: unknown): CountedLine[] | null {
+  if (raw === undefined || raw === null) return null;
+  if (!Array.isArray(raw) || raw.length > 40) throw new HttpError(400, 'invalid_field', 'counted must be a list');
+  return raw.map((entry) => {
+    const row = (entry ?? {}) as Record<string, unknown>;
+    if (typeof row.sku !== 'string') throw new HttpError(400, 'invalid_field', 'each counted line needs a sku');
+    return { sku: row.sku, receivedQty: intIn(row.received_qty, 0, 100_000, 'received_qty') };
+  });
+}
+
+export function matchView(m: ThreeWayResult) {
+  return {
+    result: m.result, decision: m.decision, payable_minor: m.payableMinor, invoice_total_minor: m.invoiceTotalMinor, variance_minor: m.varianceMinor,
+    two_way: m.twoWay, reasons: m.reasons,
+    lines: m.lines.map((l) => ({
+      sku: l.sku, name: l.name, ordered_qty: l.orderedQty, counted_qty: l.countedQty, invoiced_qty: l.invoicedQty,
+      po_unit_minor: l.poUnitMinor, invoice_unit_minor: l.invoiceUnitMinor, pay_qty: l.payQty, pay_minor: l.payMinor, notes: l.notes
+    })),
+    unmatched: m.unmatched.map((l) => ({ description: l.description, quantity: l.quantity, unit_price_minor: l.unitPriceMinor }))
+  };
+}
+
 export function createOwnerApi(deps: OwnerApiDeps) {
   const { store, payments, logger } = deps;
   const service = payments.service;
@@ -230,9 +267,34 @@ export function createOwnerApi(deps: OwnerApiDeps) {
         body: {
           payment: ownerPaymentView(p, names),
           events: events.map(toPublicEvent),
-          deliveries: deliveries.map((d) => ({ source: d.source, outcome: d.outcome, delivered_value_minor: d.deliveredValueMinor, lines: d.receivedLines, created_at: d.createdAt }))
+          deliveries: deliveries.map((d) => ({ source: d.source, outcome: d.outcome, delivered_value_minor: d.deliveredValueMinor, lines: d.receivedLines, created_at: d.createdAt })),
+          invoice_matches: (await repo.payments.listInvoiceMatches(p.id)).map((m) => ({ result: m.result, variance_minor: m.varianceMinor, extractor: m.extractor, invoice_lines: m.extractedLines, lines: m.poLines, created_at: m.createdAt }))
         }
       };
+    }
+    if ((m = /^\/payments\/([^/]+)\/invoice$/.exec(path)) && method === 'POST') {
+      // Lines read from an invoice photo: untrusted data. They can only lower a charge or hold the money.
+      const id = m[1] ?? '';
+      await mustPayment(repo, id);
+      const body = await readBody(req);
+      const invoice = invoiceLinesFrom(body.lines);
+      const counted = countedFrom(body.counted);
+      const extractor = typeof body.extractor === 'string' ? body.extractor.replace(/[^\w .:/()+-]/g, '').slice(0, 80) : 'unknown';
+      if (body.preview === true) {
+        const { match } = await service.previewInvoiceMatch(ctx, id, invoice, counted);
+        return { status: 200, body: { preview: true, match: matchView(match), payment: ownerPaymentView(await mustPayment(repo, id), names) } };
+      }
+      const result = await service.recordInvoiceDelivery(ctx, id, invoice, counted, extractor);
+      let paidMinor = 0;
+      if (result.payment.heldMinor === 0 && result.payment.chargedMinor > 0) {
+        try {
+          paidMinor = (await service.settle(ctx, id)).paidMinor;
+        } catch (error) {
+          if (!(error instanceof PaymentFlowError) && !(error instanceof PayPalApiError) && !(error instanceof PayPalTransportError)) throw error;
+          logger.warn('owner_settle_failed', { payment_id: id, error: error.message });
+        }
+      }
+      return { status: 200, body: { preview: false, match: matchView(result.match), outcome: result.outcome, payment: ownerPaymentView(await mustPayment(repo, id), names), supplier_paid_minor: paidMinor, speech: result.speech } };
     }
     if ((m = /^\/payments\/([^/]+)\/(delivery|refund|sync)$/.exec(path)) && method === 'POST') {
       const [, id = '', action] = m;

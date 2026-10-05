@@ -8,7 +8,8 @@ import type { SpendPolicy } from '../policy/policy-engine.js';
 import type { PriceObservation } from '../policy/anomaly.js';
 import { applyAction, newPaymentState } from './state-machine.js';
 import type {
-  DeliveryRecord, NewPayment, NewPaymentEvent, PaymentEventRecord, PaymentMethodStatus, PaymentPatch, PaymentRecord,
+  DeliveryRecord,
+  InvoiceMatchRecord, NewPayment, NewPaymentEvent, PaymentEventRecord, PaymentMethodStatus, PaymentPatch, PaymentRecord,
   PaymentsRepository, StoredPaymentMethod, SupplierPayee
 } from './types.js';
 import type { LedgerAction } from './state-machine.js';
@@ -48,6 +49,7 @@ export class MemoryPaymentsData {
   readonly payments = new Map<string, PaymentRecord>();
   readonly events: PaymentEventRecord[] = [];
   readonly deliveries: DeliveryRecord[] = [];
+  readonly invoiceMatches: InvoiceMatchRecord[] = [];
 
   constructor(seed: MemoryPaymentsSeed = {}) {
     this.policy = seed.policy ?? null;
@@ -267,5 +269,17 @@ export class MemoryPaymentsRepository implements PaymentsRepository {
 
   async listDeliveries(paymentId: string): Promise<DeliveryRecord[]> {
     return this.data.deliveries.filter((d) => d.paymentId === paymentId);
+  }
+
+  async recordInvoiceMatch(match: Omit<InvoiceMatchRecord, 'id' | 'createdAt'>): Promise<InvoiceMatchRecord> {
+    if (!this.data.deliveries.some((d) => d.id === match.deliveryId)) throw new LedgerConflictError('not_found', 'delivery not found');
+    const row: InvoiceMatchRecord = { ...structuredClone(match), id: randomUUID(), createdAt: this.iso() };
+    this.data.invoiceMatches.push(row);
+    return row;
+  }
+
+  async listInvoiceMatches(paymentId: string): Promise<InvoiceMatchRecord[]> {
+    const ids = new Set(this.data.deliveries.filter((d) => d.paymentId === paymentId).map((d) => d.id));
+    return this.data.invoiceMatches.filter((m) => ids.has(m.deliveryId));
   }
 }

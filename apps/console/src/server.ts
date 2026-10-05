@@ -18,6 +18,9 @@ import { McpToolbox } from './toolbox.js';
 import type { Toolbox } from './toolbox.js';
 import { newConversation, runTurn } from './agent.js';
 import { createOwnerRoutes } from './owner-routes.js';
+import { createInvoiceRoutes } from './invoice-routes.js';
+import { ClaudeInvoiceExtractor, InvoiceReader, SampleInvoiceExtractor } from './invoice-extract.js';
+import type { InvoiceExtractor } from './invoice-extract.js';
 import type { Conversation, VoiceApprover } from './agent.js';
 
 export interface SimConfig {
@@ -163,6 +166,8 @@ export interface SimDeps {
   readonly fetch?: Parameters<typeof createOwnerRoutes>[2];
   /** MCP connection for a visitor's shop token (visitor mode). */
   readonly toolboxFor?: (token: string) => Toolbox;
+  /** Reads invoice photos; defaults to the labelled offline reader for the sample photos only. */
+  readonly invoiceReader?: InvoiceExtractor;
 }
 
 /** One shop as seen by one browser: its MCP credential and connection, and its conversations. */
@@ -199,6 +204,8 @@ export function createSimHandler(deps: SimDeps) {
   const owner = createOwnerRoutes({ ownerApiUrl: config.ownerApiUrl, ...(config.originVerifySecret ? { extraHeaders: originHeaders } : {}) }, logger, deps.fetch);
   const toolboxFor = deps.toolboxFor ?? ((token: string) => new McpToolbox(config.mcpUrl, token, originHeaders));
   const fetchImpl = (deps.fetch ?? fetch) as NonNullable<SimDeps['fetch']>;
+  const samplesDir = join(deps.staticDir, 'samples');
+  const invoices = createInvoiceRoutes({ reader: deps.invoiceReader ?? new InvoiceReader(null, new SampleInvoiceExtractor(samplesDir)), api: owner.api, samplesDir, logger });
 
   function authorized(req: IncomingMessage): boolean {
     if (!config.accessCode) return true;
@@ -439,6 +446,15 @@ export function createSimHandler(deps: SimDeps) {
             send(res, 401, { error: 'no_session', message: 'Start the demo first (Try the demo).' });
             return;
           }
+          if (url.pathname.startsWith('/api/invoice/')) {
+            // Reading a photo costs a model call: the same per-address budget as a voice turn.
+            if (req.method === 'POST' && url.pathname === '/api/invoice/read' && !limiter.consume(clientIpFrom(req, config.trustProxy)).allowed) {
+              send(res, 429, { error: 'rate_limited', message: 'One moment please, too many requests.' });
+              return;
+            }
+            await invoices.handle(session.token, req, res, url);
+            return;
+          }
           if (url.pathname.startsWith('/api/owner/')) {
             const status = await owner.proxy(session.token, req, res, url);
             // A reset shop starts a fresh conversation, too.
@@ -489,14 +505,16 @@ async function main(): Promise<void> {
   if (config.mcpToken.length < 16 && !config.demoProvisionSecret) throw new Error('SIM_MCP_TOKEN (the MCP bearer token for the demo tenant) or DEMO_PROVISION_SECRET (a shop per visitor) is required');
   const fallbackBrain = new RulesBrain();
   let brain: Brain = fallbackBrain;
+  let invoiceReader: InvoiceExtractor | undefined;
   if (config.brain !== 'rules') {
     const { client, config: claude } = claudeClientFromEnv({ ...process.env, BRAIN: config.brain });
     brain = new ClaudeBrain(client, claude);
+    invoiceReader = new InvoiceReader(new ClaudeInvoiceExtractor(client, claude), new SampleInvoiceExtractor(fileURLToPath(new URL('../static/samples/', import.meta.url))));
   }
   const speech: SpeechClient = config.tts === 'polly' ? new PollySpeech(config.pollyVoice, config.awsRegion, config.pollyEngine) : new BrowserSpeech();
   const toolbox = new McpToolbox(config.mcpUrl, config.mcpToken, config.originVerifySecret ? { 'x-origin-verify': config.originVerifySecret } : {});
   const staticDir = fileURLToPath(new URL('../static/', import.meta.url));
-  const handler = createSimHandler({ config, logger, toolbox, brain, fallbackBrain, speech, staticDir });
+  const handler = createSimHandler({ config, logger, toolbox, brain, fallbackBrain, speech, staticDir, ...(invoiceReader ? { invoiceReader } : {}) });
   const server = createServer((req, res) => {
     void handler.handle(req, res);
   });

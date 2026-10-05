@@ -296,6 +296,15 @@ ol.timeline .what { font-weight: 600; text-transform: capitalize; }
 
 .call.host { border-color: var(--accent-2); }
 
+.sample-list { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.invoice-grid { display: grid; grid-template-columns: minmax(140px, 220px) 1fr; gap: 16px; align-items: start; }
+.invoice-thumb { width: 100%; border-radius: 8px; border: 1px solid var(--line); background: #fff; }
+table.lines.match input { width: 72px; text-align: right; }
+table.lines tr.err td { color: var(--danger); }
+.note.warn { border: 1px solid #6b5316; color: var(--warn); border-radius: 10px; padding: 8px 12px; margin: 8px 0; }
+.note.warn q { display: block; margin: 4px 0; color: var(--text); font-style: italic; }
+p.chip { display: inline-block; margin: 8px 0; }
+
 .toast { position: fixed; right: 20px; bottom: 20px; max-width: min(420px, 90vw); padding: 12px 16px; border-radius: 12px; background: var(--panel); border: 1px solid var(--accent); box-shadow: 0 10px 30px rgb(0 0 0 / 0.4); z-index: 40; }
 .toast.warn { border-color: var(--warn); }
 .toast.err { border-color: var(--danger); }
@@ -305,6 +314,7 @@ ol.timeline .what { font-weight: 600; text-transform: capitalize; }
   ol.timeline li { grid-template-columns: 1fr; gap: 2px; }
   .topbar, .tabs, main > section[role="tabpanel"], .honesty { padding-left: 14px; padding-right: 14px; }
   .landing { margin: 16px; padding: 20px; }
+  .invoice-grid { grid-template-columns: 1fr; }
 }
 
 @media (prefers-reduced-motion: reduce) {

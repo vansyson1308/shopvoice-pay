@@ -92,6 +92,18 @@ export interface DeliveryRecord {
   readonly createdAt: string;
 }
 
+/** A 3-way match against an invoice photo. Extracted lines are untrusted data, kept for review only. */
+export interface InvoiceMatchRecord {
+  readonly id: string;
+  readonly deliveryId: string;
+  readonly extractedLines: readonly Readonly<Record<string, unknown>>[];
+  readonly poLines: readonly Readonly<Record<string, unknown>>[];
+  readonly result: 'match' | 'short' | 'over' | 'price_mismatch' | 'mismatch';
+  readonly varianceMinor: number;
+  readonly extractor: string;
+  readonly createdAt: string;
+}
+
 /** Non-money fields a transition may set. `null` clears a field. */
 export interface PaymentPatch {
   readonly approvedBy?: ApprovedBy;
@@ -160,4 +172,7 @@ export interface PaymentsRepository {
 
   recordDelivery(delivery: Omit<DeliveryRecord, 'id' | 'createdAt'>): Promise<DeliveryRecord>;
   listDeliveries(paymentId: string): Promise<DeliveryRecord[]>;
+  recordInvoiceMatch(match: Omit<InvoiceMatchRecord, 'id' | 'createdAt'>): Promise<InvoiceMatchRecord>;
+  /** Matches for a payment's deliveries, oldest first. */
+  listInvoiceMatches(paymentId: string): Promise<InvoiceMatchRecord[]>;
 }
