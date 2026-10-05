@@ -47,11 +47,12 @@ test('a visitor shop is seeded, has its own token and a simulated PayPal account
       (SELECT kind FROM sandbox_shops WHERE tenant_id = $1) AS kind`, [tenantId])).rows[0];
   assert.deepEqual(counts, { products: 47, payments: 9, methods: 1, kind: 'visitor' });
 
-  // A payment made in the shop disappears on reset; the PayPal account stays.
+  // A payment and a catering invoice made in the shop disappear on reset; the PayPal account stays.
   await query(admin, "INSERT INTO supplier_payments (tenant_id, supplier_code, currency, amount_requested_minor, status, decision, lines_fingerprint, created_by) VALUES ($1, 'SUP-DAIRY', 'USD', 8400, 'pending_approval', 'autopay', 'x', 'agent')", [tenantId]);
+  await query(admin, "INSERT INTO sales_invoices (tenant_id, status, customer_email, total_minor, currency, invoice_number, paypal_request_id, created_by) VALUES ($1, 'draft', 'jordan@personal.example.com', 9000, 'USD', 'SVP-CAT-RESET', 'svp-inv-reset', 'agent')", [tenantId]);
   assert.equal(await shops.reset(tenantId), true);
-  const after = (await query(admin, "SELECT (SELECT count(*)::int FROM supplier_payments WHERE tenant_id = $1) AS payments, (SELECT count(*)::int FROM payment_methods WHERE tenant_id = $1 AND status = 'active') AS methods", [tenantId])).rows[0];
-  assert.deepEqual(after, { payments: 9, methods: 1 });
+  const after = (await query(admin, "SELECT (SELECT count(*)::int FROM supplier_payments WHERE tenant_id = $1) AS payments, (SELECT count(*)::int FROM payment_methods WHERE tenant_id = $1 AND status = 'active') AS methods, (SELECT count(*)::int FROM sales_invoices WHERE tenant_id = $1) AS invoices", [tenantId])).rows[0];
+  assert.deepEqual(after, { payments: 9, methods: 1, invoices: 0 });
 });
 
 test('reset refuses a real shop; the shared demo shop can be reset', { skip }, async () => {

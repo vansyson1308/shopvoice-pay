@@ -37,6 +37,30 @@ export interface MockPayPalOptions {
    */
   readonly vaultThirdPartyPayee?: 'allowed' | 'rejected';
   readonly webhookSecret?: string;
+  /**
+   * Transaction search lags behind real time in the sandbox (toolkit spike
+   * T7). A capture younger than this is not listed yet. Default 0 (no lag).
+   */
+  readonly reportingLagMs?: number;
+}
+
+type MockInvoiceStatus = 'DRAFT' | 'SENT' | 'PAID' | 'CANCELLED';
+
+interface MockInvoice {
+  id: string;
+  status: MockInvoiceStatus;
+  invoiceNumber: string;
+  currency: string;
+  totalMinor: number;
+  recipientEmail: string;
+  itemCount: number;
+}
+
+interface MockTracker {
+  readonly transactionId: string;
+  readonly trackingNumber: string;
+  readonly status: string;
+  readonly carrier: string;
 }
 
 interface MockAuthorization {
@@ -169,7 +193,11 @@ export class MockPayPal {
   private readonly orders = new Map<string, MockOrder>();
   private readonly authorizations = new Map<string, MockAuthorization>();
   private readonly captures = new Map<string, MockCapture>();
-  private readonly refunds = new Map<string, { id: string; captureId: string; amountMinor: number; currency: string }>();
+  private readonly refunds = new Map<string, { id: string; captureId: string; amountMinor: number; currency: string; createdAt: number }>();
+  private readonly invoices = new Map<string, MockInvoice>();
+  private readonly trackers: MockTracker[] = [];
+  /** How far transaction search trails real time (see MockPayPalOptions.reportingLagMs). */
+  reportingLagMs: number;
   private readonly setupTokens = new Map<string, MockSetupToken>();
   private readonly paymentTokens = new Map<string, { id: string; customerId: string; email: string }>();
   private readonly payouts = new Map<string, Record<string, unknown>>();
@@ -181,6 +209,7 @@ export class MockPayPal {
     this.approveBaseUrl = (options.approveBaseUrl ?? 'https://paypal.mock').replace(/\/+$/, '');
     this.vaultThirdPartyPayee = options.vaultThirdPartyPayee ?? 'rejected';
     this.webhookSecret = options.webhookSecret ?? randomBytes(16).toString('hex');
+    this.reportingLagMs = options.reportingLagMs ?? 0;
   }
 
   /** fetch-compatible entry point for PayPalClient. */
@@ -201,7 +230,7 @@ export class MockPayPal {
       result = stored;
       replayed = true;
     } else {
-      result = this.dispatch(init.method, path, init.body, init.headers);
+      result = this.dispatch(init.method, path, init.body, init.headers, parsed.searchParams);
       if (key && result.status < 500) this.idempotency.set(key, result);
     }
     this.calls.push({ method: init.method, path, requestId, status: result.status, replayed });
@@ -278,10 +307,10 @@ export class MockPayPal {
     return fault.status;
   }
 
-  private dispatch(method: string, path: string, rawBody: string | undefined, headers: Record<string, string>): StoredResponse {
+  private dispatch(method: string, path: string, rawBody: string | undefined, headers: Record<string, string>, query: URLSearchParams): StoredResponse {
     try {
       const body = this.parseBody(rawBody, headers);
-      return this.route(method, path, body, headers, rawBody ?? '');
+      return this.route(method, path, body, headers, rawBody ?? '', query);
     } catch (error) {
       if (error instanceof HttpError) return { status: error.status, body: error.body };
       throw error;
@@ -299,7 +328,7 @@ export class MockPayPal {
     }
   }
 
-  private route(method: string, path: string, body: Record<string, unknown>, headers: Record<string, string>, rawBody: string): StoredResponse {
+  private route(method: string, path: string, body: Record<string, unknown>, headers: Record<string, string>, rawBody: string, query: URLSearchParams): StoredResponse {
     if (method === 'POST' && path === '/v1/oauth2/token') {
       if (!headers.authorization?.startsWith('Basic ')) return { status: 401, body: { error: 'invalid_client', error_description: 'Client Authentication failed' } };
       return { status: 200, body: { scope: 'https://uri.paypal.com/services/payments/payment', access_token: `A21AA${randomBytes(24).toString('hex')}`, token_type: 'Bearer', app_id: 'APP-MOCK', expires_in: 32400, nonce: randomBytes(8).toString('hex') } };
@@ -349,6 +378,17 @@ export class MockPayPal {
       return { status: 201, body: { id: id('WH-', 17), url: body.url, event_types: body.event_types } };
     }
     if (method === 'GET' && path === '/v1/notifications/webhooks') return { status: 200, body: { webhooks: [] } };
+    // PayPal Agent Toolkit endpoints (invoicing, shipment tracking, transaction search).
+    if (method === 'POST' && path === '/v2/invoicing/invoices') return this.createInvoice(body);
+    if ((m = /^\/v2\/invoicing\/invoices\/([^/]+)$/.exec(path)) && method === 'GET') return { status: 200, body: this.invoiceJson(this.invoice(m[1]!)) };
+    if ((m = /^\/v2\/invoicing\/invoices\/([^/]+)\/send$/.exec(path)) && method === 'POST') return this.sendInvoice(m[1]!);
+    if (method === 'POST' && path === '/v1/shipping/trackers-batch') return this.addTrackers(body);
+    if (method === 'GET' && path === '/v1/shipping/trackers') {
+      const transactionId = query.get('transaction_id') ?? '';
+      const trackers = this.trackers.filter((t) => t.transactionId === transactionId);
+      return { status: 200, body: { trackers: trackers.map((t) => ({ transaction_id: t.transactionId, tracking_number: t.trackingNumber, status: t.status, carrier: t.carrier })), links: [] } };
+    }
+    if (method === 'GET' && path === '/v1/reporting/transactions') return this.searchTransactions(query);
     throw notFound();
   }
 
@@ -509,7 +549,7 @@ export class MockPayPal {
     if (requested.minor > remaining) throw unprocessable('REFUND_AMOUNT_EXCEEDED', 'The refund amount must be less than or equal to the capture amount that has not yet been refunded.');
     capture.refundedMinor += requested.minor;
     capture.status = capture.refundedMinor === capture.amountMinor ? 'REFUNDED' : 'PARTIALLY_REFUNDED';
-    const refund = { id: id('', 17), captureId, amountMinor: requested.minor, currency: capture.currency };
+    const refund = { id: id('', 17), captureId, amountMinor: requested.minor, currency: capture.currency, createdAt: this.now() };
     this.refunds.set(refund.id, refund);
     return { status: 201, body: { id: refund.id, status: 'COMPLETED', amount: money(refund.amountMinor, refund.currency), links: [] } };
   }
@@ -571,6 +611,113 @@ export class MockPayPal {
     const eventText = extractRawEvent(rawBody) ?? JSON.stringify(body.webhook_event);
     const expected = this.webhookSig(String(body.transmission_id), String(body.transmission_time), String(body.webhook_id), eventText);
     return { status: 200, body: { verification_status: expected === body.transmission_sig ? 'SUCCESS' : 'FAILURE' } };
+  }
+
+  // ---------- PayPal Agent Toolkit endpoints ----------
+
+  /** The customer pays a sent invoice (mock only; stands in for the payer's PayPal page). */
+  payInvoice(invoiceId: string): void {
+    const invoice = this.invoice(invoiceId);
+    if (invoice.status !== 'SENT') throw new Error(`mock_invoice_not_payable:${invoice.status}`);
+    invoice.status = 'PAID';
+  }
+
+  private invoice(invoiceId: string): MockInvoice {
+    const invoice = this.invoices.get(invoiceId);
+    if (!invoice) throw notFound();
+    return invoice;
+  }
+
+  /** Returns a link object, not the invoice (toolkit spike T1). */
+  private createInvoice(body: Record<string, unknown>): StoredResponse {
+    const detail = (body.detail ?? {}) as Record<string, unknown>;
+    const currency = typeof detail.currency_code === 'string' ? detail.currency_code : '';
+    if (!/^[A-Z]{3}$/.test(currency)) throw badRequest('MISSING_REQUIRED_PARAMETER', 'detail.currency_code is required');
+    const recipients = Array.isArray(body.primary_recipients) ? body.primary_recipients as Record<string, unknown>[] : [];
+    const email = (recipients[0]?.billing_info as Record<string, unknown> | undefined)?.email_address;
+    if (typeof email !== 'string' || !email.includes('@')) throw badRequest('MISSING_REQUIRED_PARAMETER', 'primary_recipients[0].billing_info.email_address is required');
+    const items = Array.isArray(body.items) ? body.items as Record<string, unknown>[] : [];
+    if (items.length === 0) throw badRequest('MISSING_REQUIRED_PARAMETER', 'items is required');
+    let totalMinor = 0;
+    for (const item of items) {
+      const qty = Number(item.quantity);
+      const unit = amountOf(item.unit_amount, currency);
+      if (!Number.isFinite(qty) || qty <= 0 || !unit || unit.currency !== currency) throw badRequest('INVALID_PARAMETER_VALUE', 'items[].quantity and unit_amount must be valid');
+      totalMinor += Math.round(qty * unit.minor);
+    }
+    const invoiceNumber = typeof detail.invoice_number === 'string' ? detail.invoice_number : `MOCK-${this.invoices.size + 1}`;
+    if ([...this.invoices.values()].some((i) => i.invoiceNumber === invoiceNumber)) throw unprocessable('DUPLICATE_INVOICE_NUMBER', 'Invoice number already exists.');
+    const invoice: MockInvoice = { id: id('INV2-', 16), status: 'DRAFT', invoiceNumber, currency, totalMinor, recipientEmail: email, itemCount: items.length };
+    this.invoices.set(invoice.id, invoice);
+    return { status: 201, body: { rel: 'self', href: `${MOCK_BASE_URL}/v2/invoicing/invoices/${invoice.id}`, method: 'GET' } };
+  }
+
+  /** Returns a payer-view link object (toolkit spike T2). */
+  private sendInvoice(invoiceId: string): StoredResponse {
+    const invoice = this.invoice(invoiceId);
+    // Not observed in the sandbox: a second send with a new request id is refused here.
+    if (invoice.status !== 'DRAFT') throw unprocessable('INVALID_INVOICE_STATUS', 'Only a draft invoice can be sent.');
+    invoice.status = 'SENT';
+    return { status: 200, body: { href: `${this.approveBaseUrl}/invoice?id=${invoice.id}`, rel: 'payer-view', method: 'GET' } };
+  }
+
+  private invoiceJson(invoice: MockInvoice): Record<string, unknown> {
+    return {
+      id: invoice.id,
+      status: invoice.status,
+      detail: { invoice_number: invoice.invoiceNumber, currency_code: invoice.currency },
+      primary_recipients: [{ billing_info: { email_address: invoice.recipientEmail } }],
+      amount: money(invoice.totalMinor, invoice.currency),
+      due_amount: money(invoice.status === 'PAID' ? 0 : invoice.totalMinor, invoice.currency)
+    };
+  }
+
+  /** Trackers on captured transactions (toolkit spike T4: tracker_identifiers + errors). */
+  private addTrackers(body: Record<string, unknown>): StoredResponse {
+    const input = Array.isArray(body.trackers) ? body.trackers as Record<string, unknown>[] : [];
+    if (input.length === 0) throw badRequest('MISSING_REQUIRED_PARAMETER', 'trackers is required');
+    const identifiers: Record<string, unknown>[] = [];
+    const errors: Record<string, unknown>[] = [];
+    for (const t of input) {
+      const transactionId = typeof t.transaction_id === 'string' ? t.transaction_id : '';
+      const trackingNumber = typeof t.tracking_number === 'string' ? t.tracking_number : '';
+      if (!this.captures.has(transactionId) || !trackingNumber) {
+        errors.push({ name: 'RESOURCE_NOT_FOUND', message: 'The specified resource does not exist.', details: [{ field: 'transaction_id', value: transactionId, issue: 'INVALID_TRANSACTION_ID' }] });
+        continue;
+      }
+      const existing = this.trackers.findIndex((x) => x.transactionId === transactionId && x.trackingNumber === trackingNumber);
+      const tracker: MockTracker = { transactionId, trackingNumber, status: String(t.status ?? 'SHIPPED'), carrier: String(t.carrier ?? 'OTHER') };
+      if (existing === -1) this.trackers.push(tracker);
+      else this.trackers[existing] = tracker;
+      identifiers.push({ transaction_id: transactionId, tracking_number: trackingNumber, links: [] });
+    }
+    return { status: 200, body: { tracker_identifiers: identifiers, errors, links: [] } };
+  }
+
+  /** Transaction search: at most 31 days per request; recent activity can lag (reportingLagMs). */
+  private searchTransactions(query: URLSearchParams): StoredResponse {
+    const start = Date.parse(query.get('start_date') ?? '');
+    const end = Date.parse(query.get('end_date') ?? '');
+    if (!Number.isFinite(start) || !Number.isFinite(end)) throw badRequest('MISSING_REQUIRED_PARAMETER', 'start_date and end_date are required');
+    if (end < start || end - start > 31 * DAY_MS) throw badRequest('INVALID_REQUEST', 'Date range is greater than 31 days');
+    const visibleUntil = this.now() - this.reportingLagMs;
+    const rows: Record<string, unknown>[] = [];
+    const inRange = (at: number) => at >= start && at <= end && at <= visibleUntil;
+    for (const c of this.captures.values()) {
+      if (!inRange(c.createdAt)) continue;
+      rows.push({ transaction_info: { transaction_id: c.id, transaction_event_code: 'T0006', transaction_initiation_date: new Date(c.createdAt).toISOString(), transaction_amount: money(c.amountMinor, c.currency), transaction_status: 'S' } });
+    }
+    for (const r of this.refunds.values()) {
+      if (!inRange(r.createdAt)) continue;
+      rows.push({ transaction_info: { transaction_id: r.id, paypal_reference_id: r.captureId, transaction_event_code: 'T1107', transaction_initiation_date: new Date(r.createdAt).toISOString(), transaction_amount: { currency_code: r.currency, value: `-${toPayPalValue(r.amountMinor, r.currency)}` }, transaction_status: 'S' } });
+    }
+    return {
+      status: 200,
+      body: {
+        transaction_details: rows, account_number: 'MOCKMERCHANT1', start_date: new Date(start).toISOString(), end_date: new Date(end).toISOString(),
+        last_refreshed_datetime: new Date(visibleUntil).toISOString(), page: 1, total_items: rows.length, total_pages: 1
+      }
+    };
   }
 
   private orderJson(order: MockOrder): Record<string, unknown> {

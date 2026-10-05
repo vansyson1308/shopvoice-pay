@@ -106,6 +106,22 @@ function planDelivery(t: string): { name: string; input: Record<string, unknown>
   return null;
 }
 
+/** "Invoice jordan@personal.example.com for two sandwich platters at $45 and a fruit tray at $30". */
+function planCateringInvoice(t: string): { name: string; input: Record<string, unknown> } | null {
+  const email = /\b[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}\b/.exec(t)?.[0];
+  if (!email || !/\b(invoice|bill)\b/.test(t)) return null;
+  const after = t.slice(t.indexOf(email) + email.length).replace(/^\s*for\s+/, '');
+  const items: { description: string; quantity: number; unit_price: number }[] = [];
+  for (const part of after.split(/\s*(?:,|\band\b)\s*/)) {
+    const m = /^(?:(\d+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|an?)\s+)?(.+?)\s+(?:at|for)\s+\$?(\d+(?:\.\d{1,2})?)(?:\s*(?:each|apiece))?[.!]*$/.exec(part.trim());
+    if (!m?.[2] || !m[3]) continue;
+    const word = m[1] ?? 'one';
+    const quantity = /^\d+$/.test(word) ? Number(word) : word === 'a' || word === 'an' ? 1 : NUMBER_WORDS[word] ?? 1;
+    items.push({ description: m[2].replace(/\b(platter|tray|box)e?s\b/, '$1').trim(), quantity, unit_price: Number(m[3]) });
+  }
+  return { name: 'create_catering_invoice', input: items.length > 0 ? { customer_email: email, items } : { customer_email: email } };
+}
+
 /** Maps an utterance to a tool call (name + args) the way a tool-use model would. */
 export function planToolCall(text: string): { name: string; input: Record<string, unknown> } | null {
   const t = text.toLowerCase().trim();
@@ -114,6 +130,14 @@ export function planToolCall(text: string): { name: string; input: Record<string
   if (/\b(briefing|morning summary|how('s| is) the shop)\b/.test(t)) return { name: 'get_daily_briefing', input: {} };
   const delivery = planDelivery(t);
   if (delivery) return delivery;
+  const catering = planCateringInvoice(t);
+  if (catering) return catering;
+  if (/\bcatering\b/.test(t) && /\b(invoice|invoices|paid|pay)\b/.test(t)) return { name: 'get_catering_invoices', input: {} };
+  if (/\b(track|tracked|tracking)\b/.test(t)) {
+    const who = /\b(?:the|my) (.+?) (?:delivery|order|charge)\b/.exec(t)?.[1];
+    return { name: 'get_delivery_tracking', input: who ? { supplier: who.trim() } : {} };
+  }
+  if (/\bpaypal('s)? (records|transactions)\b|\bmatch(es)? paypal\b/.test(t)) return { name: 'check_paypal_records', input: {} };
   if (/\bwhy\b/.test(t) && /\b(order|payment|pay|paid|approv|ok|blocked)\w*/.test(t)) {
     const who = /\bwhy (?:did|was|is) (?:the |my )?(.+?) (?:order|payment|bill)\b/.exec(t)?.[1];
     return { name: 'explain_payment', input: who ? { supplier: who.trim() } : {} };
@@ -153,6 +177,30 @@ export function planToolCall(text: string): { name: string; input: Record<string
   return null;
 }
 
+const TWO_STEP = new Set(['request_refund', 'create_catering_invoice']);
+
+/**
+ * The previous turn's last tool call, if it was a two-step tool still waiting
+ * for a yes: a preview (needs_confirmation), or a confirmation PayPal failed.
+ */
+function pendingTwoStep(messages: ChatMessage[]): { name: string; input: Record<string, unknown> } | null {
+  for (let i = messages.length - 2; i >= 0; i -= 1) {
+    const m = messages[i];
+    if (m?.role !== 'assistant') continue;
+    const uses = m.content.filter(isToolUse);
+    const last = uses[uses.length - 1];
+    if (!last) continue;
+    const { toolUseId, name, input } = last.toolUse;
+    if (!TWO_STEP.has(name)) return null;
+    const result = messages[i + 1]?.content.find((b): b is ToolResultBlock => typeof b === 'object' && b !== null && 'toolResult' in b && (b as ToolResultBlock).toolResult.toolUseId === toolUseId);
+    const status = result?.toolResult.content.map((c) => ('json' in c ? c.json.status : undefined)).find((v) => v !== undefined);
+    if (status !== 'needs_confirmation' && status !== 'failed') return null;
+    const { confirmation_token: _held, ...rest } = input;
+    return { name, input: rest };
+  }
+  return null;
+}
+
 export class RulesBrain implements Brain {
   readonly kind = 'rules' as const;
   readonly model = 'offline-rules-v1';
@@ -168,6 +216,12 @@ export class RulesBrain implements Brain {
       return { content: [{ text: spoken.join(' ') }], stopReason: 'end_turn', latencyMs: performance.now() - started };
     }
     const text = lastUserText(input.messages);
+    // A yes right after a two-step preview (refund, catering invoice) confirms that, not a reorder.
+    const twoStep = isAffirmative(text) ? pendingTwoStep(input.messages) : null;
+    if (twoStep && input.tools.some((t) => t.name === twoStep.name)) {
+      this.counter += 1;
+      return { content: [{ toolUse: { toolUseId: `rules-${this.counter}`, name: twoStep.name, input: { ...twoStep.input, confirmation_token: 'held-by-host' } } }], stopReason: 'tool_use', latencyMs: performance.now() - started };
+    }
     if (NEGATIVE.test(text) && !AFFIRMATIVE.test(text)) {
       return { content: [{ text: "Okay, I won't place that order." }], stopReason: 'end_turn', latencyMs: performance.now() - started };
     }

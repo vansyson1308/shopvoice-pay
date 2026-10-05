@@ -11,7 +11,7 @@ const skip = !dbUrl;
 const TENANT_A = 'a1a1a1a1-0000-4000-8000-000000000019';
 const TENANT_B = 'b2b2b2b2-0000-4000-8000-000000000019';
 
-const TABLES = ['supplier_payees', 'spend_policies', 'payment_methods', 'supplier_price_history', 'supplier_payments', 'payment_events', 'deliveries', 'invoice_matches'];
+const TABLES = ['supplier_payees', 'spend_policies', 'payment_methods', 'supplier_price_history', 'supplier_payments', 'payment_events', 'deliveries', 'invoice_matches', 'sales_invoices'];
 
 let pool;
 const ids = {};
@@ -47,6 +47,7 @@ async function seedTenant(id, name) {
   await query(pool, "INSERT INTO payment_events (tenant_id, payment_id, kind, amount_minor, currency, actor, paypal_request_id) VALUES ($1, $2, 'authorized', 8400, 'USD', 'agent', $3)", [id, payment.id, `req-${id}`]);
   const delivery = await one("INSERT INTO deliveries (tenant_id, payment_id, source, outcome, delivered_value_minor, currency) VALUES ($1, $2, 'voice', 'full', 8400, 'USD') RETURNING id", [id, payment.id]);
   await query(pool, "INSERT INTO invoice_matches (tenant_id, delivery_id, result) VALUES ($1, $2, 'match')", [id, delivery.id]);
+  await query(pool, "INSERT INTO sales_invoices (tenant_id, status, customer_email, total_minor, currency, invoice_number, paypal_request_id, created_by) VALUES ($1, 'draft', 'jordan@personal.example.com', 9000, 'USD', $2, $3, 'agent')", [id, `SVP-CAT-${id.slice(0, 4)}`, `svp-inv-${id}`]);
   ids[id] = { payment: payment.id, delivery: delivery.id };
 }
 
@@ -110,12 +111,25 @@ test('event log, deliveries and matches are append-only; ledger rows cannot be d
     "UPDATE payment_events SET reason = 'x'", 'DELETE FROM payment_events',
     "UPDATE deliveries SET outcome = 'none'", 'DELETE FROM deliveries',
     "UPDATE invoice_matches SET result = 'match'", 'DELETE FROM invoice_matches',
-    'DELETE FROM supplier_payments', 'DELETE FROM payment_methods', 'DELETE FROM spend_policies'
+    'DELETE FROM supplier_payments', 'DELETE FROM payment_methods', 'DELETE FROM spend_policies', 'DELETE FROM sales_invoices'
   ]) {
     await asRuntime(TENANT_A, async (client) => {
       await assert.rejects(client.query(sql), /permission denied/, sql);
     });
   }
+});
+
+test('sales invoices: cross-tenant writes refused; a sent invoice must carry its PayPal id', { skip }, async () => {
+  await asRuntime(TENANT_A, async (client) => {
+    await assert.rejects(client.query("INSERT INTO sales_invoices (tenant_id, status, customer_email, total_minor, currency, invoice_number, paypal_request_id, created_by) VALUES ($1, 'draft', 'x@example.com', 100, 'USD', 'N-X', 'R-X', 'agent')", [TENANT_B]), /row-level security/);
+  });
+  await asRuntime(TENANT_A, async (client) => {
+    await assert.rejects(client.query("UPDATE sales_invoices SET status = 'sent'"), /ck_sales_invoices_sent_has_paypal/);
+  });
+  await asRuntime(TENANT_A, async (client) => {
+    const res = await client.query("UPDATE sales_invoices SET status = 'failed' WHERE tenant_id = $1", [TENANT_B]);
+    assert.equal(res.rowCount, 0, "tenant B's invoice is invisible");
+  });
 });
 
 test('ledger invariants hold at the database level', { skip }, async () => {

@@ -208,6 +208,45 @@ export function runLedgerContract(label, { withRepo, makeDraftId = async () => r
     await assert.rejects(withRepo((repo) => repo.recordInvoiceMatch({ deliveryId: randomUUID(), extractedLines: [], poLines: [], result: 'match', varianceMinor: 0, extractor: 'test' })));
   });
 
+  t('sales invoices: draft -> sent -> paid, unique request id and number, no going back', async () => {
+    const number = `SVP-CAT-${randomUUID().slice(0, 8).toUpperCase()}`;
+    const input = {
+      customerEmail: 'jordan@personal.example.com', customerName: 'Jordan Lee', lines: [{ name: 'Sandwich platter', qty: 2, unitPriceMinor: 4500 }],
+      totalMinor: 9000, currency: 'USD', note: 'Saturday pickup', invoiceNumber: number, paypalRequestId: `svp-inv-${number}`, createdBy: 'agent', correlationId: 'c'
+    };
+    const draft = await withRepo((repo) => repo.createSalesInvoice(input));
+    assert.equal(draft.status, 'draft');
+    assert.equal(draft.paypalInvoiceId, null);
+    assert.deepEqual(draft.lines, input.lines);
+    await assert.rejects(withRepo((repo) => repo.createSalesInvoice(input)), /already exists/);
+    await assert.rejects(withRepo((repo) => repo.createSalesInvoice({ ...input, paypalRequestId: `${input.paypalRequestId}-x` })), /already exists/, 'same invoice number');
+    await assert.rejects(withRepo((repo) => repo.updateSalesInvoice(draft.id, { status: 'paid' })), /illegal_move/);
+    await assert.rejects(withRepo((repo) => repo.updateSalesInvoice(draft.id, { status: 'sent' })), 'sent needs the PayPal invoice id');
+    const failed = await withRepo((repo) => repo.updateSalesInvoice(draft.id, { status: 'failed', paypalInvoiceId: 'INV2-AAAA-BBBB-CCCC-DDDD' }));
+    assert.equal(failed.status, 'failed');
+    const sent = await withRepo((repo) => repo.updateSalesInvoice(draft.id, { status: 'sent', sentAt: '2026-09-25T15:00:00.000Z' }));
+    assert.equal(sent.paypalInvoiceId, 'INV2-AAAA-BBBB-CCCC-DDDD', 'kept from the failed attempt');
+    assert.equal(sent.sentAt, '2026-09-25T15:00:00.000Z');
+    await assert.rejects(withRepo((repo) => repo.updateSalesInvoice(draft.id, { status: 'draft' })), /illegal_move/);
+    const paid = await withRepo((repo) => repo.updateSalesInvoice(draft.id, { status: 'paid' }));
+    assert.equal(paid.status, 'paid');
+    assert.equal((await withRepo((repo) => repo.getSalesInvoice(draft.id))).status, 'paid');
+    assert.equal(await withRepo((repo) => repo.getSalesInvoice(randomUUID())), null);
+    const listed = await withRepo((repo) => repo.listSalesInvoices({ limit: 5 }));
+    assert.equal(listed[0].id, draft.id);
+    assert.deepEqual(await withRepo((repo) => repo.listSalesInvoices({ sinceIso: '2999-01-01T00:00:00Z' })), []);
+  });
+
+  t('shipment_tracked is a ledger event with its own request id', async () => {
+    const { id } = await withRepo((repo) => repo.createPayment(newPayment(), event('policy_evaluated', 14_400)));
+    const requestId = `svp-track-${randomUUID()}`;
+    await withRepo((repo) => repo.record(id, { event: event('shipment_tracked', 0, { paypalRequestId: requestId, detail: { tracking_number: 'EGGS-1001' } }) }));
+    await assert.rejects(withRepo((repo) => repo.record(id, { event: event('shipment_tracked', 0, { paypalRequestId: requestId }) })));
+    const tracked = (await withRepo((repo) => repo.listEvents(id))).filter((e) => e.kind === 'shipment_tracked');
+    assert.equal(tracked.length, 1);
+    assert.equal(tracked[0].detail.tracking_number, 'EGGS-1001');
+  });
+
   t('listPayments is newest first and filters by time', async () => {
     const all = await withRepo((repo) => repo.listPayments());
     assert.ok(all.length >= 4);
