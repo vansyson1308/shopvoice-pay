@@ -7,7 +7,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { fileURLToPath } from 'node:url';
-import { ClaudeBrain, claudeClientFromEnv, toClaudeMessages, fromClaudeContent, DEFAULT_BEDROCK_MODEL } from '../../apps/console/dist/claude-brain.js';
+import { ClaudeBrain, claudeClientFromEnv, toClaudeMessages, fromClaudeContent, resolveVoiceModel, bedrockEndpointFor, DEFAULT_BEDROCK_MODEL } from '../../apps/console/dist/claude-brain.js';
 import { runTurn, newConversation, approvalAnswer } from '../../apps/console/dist/agent.js';
 import { McpToolbox } from '../../apps/console/dist/toolbox.js';
 import { RulesBrain } from '../../apps/console/dist/brain.js';
@@ -17,7 +17,7 @@ import { MemoryShopStore } from '../../apps/mcp-server/dist/memory-store.js';
 import { startMcpServer, twoTenantDataset, mockPayments, silentLogger, TOKEN_A, ANCHOR } from './mcp-harness.mjs';
 
 const clock = () => Date.parse(`${ANCHOR}T15:00:00Z`);
-const CONFIG = { provider: 'bedrock', model: DEFAULT_BEDROCK_MODEL, effort: 'low', maxTokens: 4096 };
+const CONFIG = { provider: 'bedrock', model: DEFAULT_BEDROCK_MODEL, family: 'sonnet', effort: 'low', maxTokens: 4096 };
 
 /** Replays scripted Messages API responses and records every request. */
 function stubClient(script) {
@@ -55,30 +55,59 @@ test('history mapping: text, tool use, tool results (json + error), thinking pas
   ]);
 });
 
-test('request shape: Bedrock model id, low effort, one cache breakpoint on system, tools as input_schema', async () => {
+test('request shape: Sonnet 5.5 on Bedrock, low effort, adaptive thinking, one cache breakpoint on system, tools as input_schema', async () => {
   const client = stubClient([msg([{ type: 'text', text: 'Hello.' }], 'end_turn')]);
   const brain = new ClaudeBrain(client, CONFIG);
   const r = await brain.converse({ system: 'SYS', messages: [{ role: 'user', content: [{ text: 'hi' }] }], tools: [{ name: 'get_low_stock', description: 'Low stock', inputSchema: { type: 'object', properties: {} } }] });
   assert.equal(r.stopReason, 'end_turn');
   const p = client.requests[0];
-  assert.equal(p.model, 'anthropic.claude-opus-5-5');
+  assert.equal(p.model, 'anthropic.claude-sonnet-5-5');
   assert.deepEqual(p.output_config, { effort: 'low' });
-  assert.equal(p.thinking, undefined, 'Opus 5.5 always thinks; no thinking param is sent');
+  assert.equal(p.thinking, undefined, 'adaptive thinking is the default; disabled would be a 400 on Sonnet 5.5');
+  assert.equal(p.tool_choice, undefined, 'forced tool_choice is a 400 on Sonnet 5.5');
   assert.deepEqual(p.system, [{ type: 'text', text: 'SYS', cache_control: { type: 'ephemeral' } }]);
   assert.deepEqual(p.tools, [{ name: 'get_low_stock', description: 'Low stock', input_schema: { type: 'object', properties: {} } }]);
   assert.equal(brain.kind, 'claude');
 });
 
-test('client from env: Bedrock credentials are explicit and separate; model ids are checked', () => {
+test('client from env: Sonnet 5.5 by default, Haiku 4.5 as the fast option, Opus refused; Bedrock credentials separate', () => {
   assert.throws(() => claudeClientFromEnv({ BRAIN: 'claude-bedrock' }), /BEDROCK_AWS_ACCESS_KEY_ID/);
-  assert.throws(() => claudeClientFromEnv({ BRAIN: 'claude-bedrock', BEDROCK_API_KEY: 'k', CLAUDE_MODEL: 'claude-opus-5-5' }), /start with "anthropic\."/);
   assert.throws(() => claudeClientFromEnv({ BRAIN: 'claude-api' }), /ANTHROPIC_API_KEY/);
-  const bedrock = claudeClientFromEnv({ BRAIN: 'claude-bedrock', BEDROCK_AWS_ACCESS_KEY_ID: 'AKIAEXAMPLE', BEDROCK_AWS_SECRET_ACCESS_KEY: 'secret', CLAUDE_EFFORT: 'medium' });
-  assert.deepEqual(bedrock.config, { provider: 'bedrock', model: 'anthropic.claude-opus-5-5', effort: 'medium', maxTokens: 4096 });
+  const keys = { BEDROCK_AWS_ACCESS_KEY_ID: 'AKIAEXAMPLE', BEDROCK_AWS_SECRET_ACCESS_KEY: 'secret' };
+
+  const bedrock = claudeClientFromEnv({ BRAIN: 'claude-bedrock', ...keys, CLAUDE_EFFORT: 'medium' });
+  assert.deepEqual(bedrock.config, { provider: 'bedrock', model: 'anthropic.claude-sonnet-5-5', family: 'sonnet', effort: 'medium', maxTokens: 4096 });
   assert.equal(bedrock.client.constructor.name, 'AnthropicBedrockMantle');
+
+  const fast = claudeClientFromEnv({ BRAIN: 'claude-bedrock', ...keys, CLAUDE_MODEL: 'haiku' });
+  assert.equal(fast.config.model, 'us.anthropic.claude-haiku-4-5-20251001-v1:0');
+  assert.equal(fast.config.family, 'haiku');
+  assert.equal(fast.client.constructor.name, 'AnthropicBedrock', 'Haiku 4.5 is on the Bedrock runtime, not Mantle');
+
   const api = claudeClientFromEnv({ BRAIN: 'claude-api', ANTHROPIC_API_KEY: 'sk-test' });
-  assert.equal(api.config.model, 'claude-opus-5-5');
+  assert.equal(api.config.model, 'claude-sonnet-5-5');
+  assert.equal(claudeClientFromEnv({ BRAIN: 'claude-api', ANTHROPIC_API_KEY: 'sk-test', CLAUDE_MODEL: 'haiku' }).config.model, 'claude-haiku-4-5-20251001');
+
+  for (const slow of ['claude-opus-5-5', 'anthropic.claude-opus-5-5', 'opus', 'claude-fable-5-1']) {
+    assert.throws(() => claudeClientFromEnv({ BRAIN: 'claude-bedrock', ...keys, CLAUDE_MODEL: slow }), /not a voice model/, slow);
+  }
+  assert.throws(() => claudeClientFromEnv({ BRAIN: 'claude-bedrock', ...keys, CLAUDE_MODEL: 'claude-sonnet-5-5' }), /contain "anthropic\."/);
+  assert.throws(() => claudeClientFromEnv({ BRAIN: 'claude-api', ANTHROPIC_API_KEY: 'k', CLAUDE_MODEL: 'anthropic.claude-sonnet-5-5' }), /Bedrock id/);
+  assert.deepEqual(resolveVoiceModel('bedrock', 'global.anthropic.claude-sonnet-5-5'), { model: 'global.anthropic.claude-sonnet-5-5', family: 'sonnet' });
+  assert.equal(bedrockEndpointFor('anthropic.claude-sonnet-5-5'), 'mantle');
+  assert.equal(bedrockEndpointFor('global.anthropic.claude-sonnet-5-5'), 'runtime');
+  assert.equal(bedrockEndpointFor('us.anthropic.claude-haiku-4-5-20251001-v1:0'), 'runtime');
 });
+
+test('Haiku 4.5 requests carry no effort setting (the model has none)', async () => {
+  const client = stubClient([msg([{ type: 'text', text: 'Hi.' }], 'end_turn')]);
+  const brain = new ClaudeBrain(client, { ...CONFIG, model: 'claude-haiku-4-5-20251001', family: 'haiku', provider: 'anthropic' });
+  await brain.converse({ system: 'SYS', messages: [{ role: 'user', content: [{ text: 'hi' }] }], tools: [] });
+  assert.equal(client.requests[0].output_config, undefined);
+  assert.equal(client.requests[0].thinking, undefined);
+  assert.equal(client.requests[0].model, 'claude-haiku-4-5-20251001');
+});
+
 
 test('agent with Claude: thinking goes back unchanged, the reorder token never reaches Claude, confirm needs a spoken yes', async () => {
   const mcp = await startMcpServer({ store: new MemoryShopStore(twoTenantDataset(), clock), payments: mockPayments(clock) });

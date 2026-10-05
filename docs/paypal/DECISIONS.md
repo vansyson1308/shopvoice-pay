@@ -166,12 +166,12 @@ Money state is never taken from the webhook payload, so a forged or replayed eve
 ## D13. Claude as the console brain; voice approval matched by code (2026-10-05)
 
 **Decision.** `BRAIN` selects the brain:
-- `claude-bedrock` (Claude in Amazon Bedrock, `AnthropicBedrockMantle`, `anthropic.claude-opus-5-5`);
-- `claude-api` (Anthropic API, `claude-opus-5-5`);
+- `claude-bedrock` (Claude in Amazon Bedrock; the model is chosen by `CLAUDE_MODEL`, see D16);
+- `claude-api` (Anthropic API);
 - `rules` (offline, deterministic; used by CI and as the automatic fallback when Claude cannot be reached, labelled in the reply).
 
 **Settings.**
-- Effort defaults to `low` for voice latency; Opus 5.5 always thinks.
+- Effort defaults to `low` for voice latency.
 - Thinking blocks are sent back unchanged on tool-use turns.
 - System and tools sit behind one explicit cache breakpoint (Bedrock has no automatic caching).
 - Bedrock credentials come from their own `BEDROCK_*` variables, so other `AWS_*` values in a deployment are never used for Claude. The IAM permission is `bedrock-mantle:CreateInference` on the model ARNs.
@@ -223,3 +223,25 @@ The console calls the MCP server over Render's private network.
 **Client addresses.** Render's proxy appends to `X-Forwarded-For` and does not clear what the client sent. The per-address limiters therefore take the entry at a configured position from the right (`MCP_TRUST_PROXY` and `SIM_TRUST_PROXY`, set to `2`), and ignore the header when the chain is shorter than that. This position comes from Render's documentation and community answers. It is to be checked on the live service (DEPLOY.md, step 6).
 
 **Secrets.** Render generates `POSTGRES_PASSWORD`, `MCP_DB_PASSWORD`, `DEMO_PROVISION_SECRET`, `APP_MEK_B64` and `OAUTH_COOKIE_SECRET`. The owner enters PayPal sandbox credentials and URLs in Render's dashboard (`sync: false`), never in the repository.
+
+## D16. The voice loop runs Claude Sonnet 5.5, with Claude Haiku 4.5 as the fast option (2026-10-05)
+
+**Decision.** `CLAUDE_MODEL` selects the voice model:
+
+| Value | Model | Bedrock id (endpoint) | Anthropic API id |
+|---|---|---|---|
+| `sonnet` (default) | Claude Sonnet 5.5 | `anthropic.claude-sonnet-5-5` (Mantle) | `claude-sonnet-5-5` |
+| `haiku` | Claude Haiku 4.5 | `us.anthropic.claude-haiku-4-5-20251001-v1:0` (runtime inference profile) | `claude-haiku-4-5-20251001` |
+
+A full id of either family is accepted too.
+
+**Opus is refused.** The voice loop's target is a p50 under 3 s, so the console fails at startup if `CLAUDE_MODEL` names an Opus (or any non-Sonnet, non-Haiku) model.
+
+**Request settings.**
+- Sonnet 5.5 runs with adaptive thinking (the default; `disabled` would be a 400) at `output_config.effort: low`. At `low` it skips thinking on most simple requests.
+- Haiku 4.5 has no effort parameter, so none is sent, and thinking stays off.
+- Neither model gets a forced `tool_choice`, which Sonnet 5.5 rejects. Thinking blocks are still passed back unchanged.
+
+**Endpoints.** Bedrock serves Sonnet 5.5 on its Mantle endpoint (`AnthropicBedrockMantle`, IAM `bedrock-mantle:CreateInference`). Haiku 4.5 runs on the older Bedrock runtime (`AnthropicBedrock`, IAM `bedrock:InvokeModel`). The client is picked from the model id.
+
+**Measuring.** `npm run probe:voice -- --console-url <url>` asks read-only questions in a fresh sample shop and reports the round-trip p50/p95. It runs once credentials exist (DEPLOY.md, step 8).

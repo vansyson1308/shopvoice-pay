@@ -32,7 +32,15 @@ That is about **$21 per month**. Paid instances do not sleep, which the demo nee
    - `https://<shopvoice-mcp URL>/readyz` returns `{"status":"ready","checks":{"database":"ok"}}`.
    - Open the console URL, click **Try the demo**, and run the hero story.
    - Proxy hop setting: the `demo_shop_created` and rate-limit logs on the MCP service should show visitor addresses, not Render's. If they show a 10.x address, set `MCP_TRUST_PROXY` and `SIM_TRUST_PROXY` to `1`.
-7. **Claude (when access is ready).** On `shopvoice-console`, set `BRAIN=claude-bedrock` plus `BEDROCK_AWS_ACCESS_KEY_ID` and `BEDROCK_AWS_SECRET_ACCESS_KEY`. The IAM principal needs `bedrock-mantle:CreateInference` on the Claude model ARNs in us-east-1. Alternatively, set `BRAIN=claude-api` with `ANTHROPIC_API_KEY`. If Claude cannot be reached, the console falls back to the offline rules brain and says so.
+7. **Claude (when access is ready).** On `shopvoice-console`:
+   - Set `BRAIN=claude-bedrock` plus `BEDROCK_AWS_ACCESS_KEY_ID` and `BEDROCK_AWS_SECRET_ACCESS_KEY`. Alternatively, set `BRAIN=claude-api` with `ANTHROPIC_API_KEY`.
+   - `CLAUDE_MODEL=sonnet` (Claude Sonnet 5.5, the default) or `haiku` (Claude Haiku 4.5, fastest). Opus is refused for the voice loop.
+   - IAM in us-east-1:
+     - Sonnet 5.5 is served on Bedrock's Mantle endpoint and needs `bedrock-mantle:CreateInference` on its model ARN.
+     - Haiku 4.5 is called through the `us.anthropic.claude-haiku-4-5-20251001-v1:0` inference profile and needs `bedrock:InvokeModel` on that profile and on the foundation model in each US region it routes to.
+     - Enable model access for both models in the Bedrock console.
+   - If Claude cannot be reached, the console falls back to the offline rules brain and says so.
+8. **Measure voice latency.** Run `node scripts/demo/voice_turn_probe.mjs --console-url https://<console URL> --rounds 10` once with `CLAUDE_MODEL=sonnet` and once with `haiku`. It asks read-only questions in a fresh sample shop and prints p50/p95. The target is a p50 under 3 s.
 
 Later deploys happen automatically when CI passes on `main` (`autoDeployTrigger: checksPass`).
 
