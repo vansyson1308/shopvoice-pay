@@ -50,7 +50,7 @@ flowchart LR
   mcp <-->|Cart API shape<br/>simulated| supplier[Supplier agent]
 ```
 
-Details: [docs/paypal/ARCHITECTURE.md](docs/paypal/ARCHITECTURE.md). Day-1 sandbox spike: [docs/paypal/SPIKE.md](docs/paypal/SPIKE.md). Decisions: [docs/paypal/DECISIONS.md](docs/paypal/DECISIONS.md).
+Details: [docs/paypal/ARCHITECTURE.md](docs/paypal/ARCHITECTURE.md). Day-1 sandbox spike: [docs/paypal/SPIKE.md](docs/paypal/SPIKE.md). Decisions: [docs/paypal/DECISIONS.md](docs/paypal/DECISIONS.md). Threat model, with the tests that prove each mitigation: [SECURITY.md](SECURITY.md).
 
 ## PayPal APIs used
 
@@ -63,8 +63,8 @@ Details: [docs/paypal/ARCHITECTURE.md](docs/paypal/ARCHITECTURE.md). Day-1 sandb
 | Vault v3 | `POST /v3/vault/setup-tokens`, `POST /v3/vault/payment-tokens`, `GET`/`DELETE …/{id}` | "Connect PayPal" once, then merchant-initiated payments with no checkout |
 | Payouts v1 | `POST /v1/payments/payouts`, `GET …/{batch_id}` | supplier settlement: orders are paid to the ShopVoice platform account, and suppliers are paid out for what was captured (DECISIONS.md D1, confirmed in sandbox) |
 | Webhooks v1 | `POST /v1/notifications/webhooks`, `POST /v1/notifications/verify-webhook-signature` | ledger sync; polling fallback for local runs |
-| Agent Toolkit | `@paypal/agent-toolkit` 1.11.0: `create_invoice`, `send_invoice`, `create_shipment_tracking`, `get_shipment_tracking`, `list_transactions`, `get_order`, `create_refund` | planned: invoices for the store's catering orders, shipment tracking, and the transaction list for spend summaries, wrapped behind the policy layer |
-| Agentic Commerce Cart API v1 | merchant side: `POST /merchant-cart`, `PUT /merchant-cart/{id}`, `POST /merchant-cart/{id}/checkout` | planned: a **simulated** supplier agent that ShopVoice negotiates with |
+| Agent Toolkit | `@paypal/agent-toolkit` 1.11.0, called by server code (never handed to the model): `create_shipment_tracking`, `get_shipment_tracking`, `list_transactions`, `create_invoice`, `send_invoice`, `get_invoice` | tracking on supplier charges after delivery, a cross-check of the ledger against PayPal's records, and invoices for the shop's catering customers. Refunds and merchant insights are deliberately not used through it ([AGENT_TOOLKIT.md](docs/paypal/AGENT_TOOLKIT.md), DECISIONS D19) |
+| Agentic Commerce Cart API v1 | merchant side: `POST /merchant-cart`, `GET`/`PUT /merchant-cart/{id}`, `POST /merchant-cart/{id}/checkout` | **simulated** supplier agents that ShopVoice's buyer agent places held orders with, accepting substitutions only within the owner's rules ([SUPPLIER_AGENT.md](docs/paypal/SUPPLIER_AGENT.md)) |
 
 Every POST carries a `PayPal-Request-Id` idempotency key. Retries only ever replay the same key.
 
