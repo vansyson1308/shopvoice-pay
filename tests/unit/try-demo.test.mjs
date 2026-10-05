@@ -108,3 +108,20 @@ test('new demo shops are rate limited per visitor address; PayPal returns need a
     await s.close();
   }
 });
+
+test('voice-turn probe: read-only questions in a visitor shop, p50/p95 reported', async () => {
+  const { probe, summarize, QUESTIONS } = await import('../../scripts/demo/voice_turn_probe.mjs');
+  const s = await stack();
+  try {
+    const samples = await probe(s.url, 2);
+    assert.equal(samples.length, QUESTIONS.length * 2);
+    for (const sample of samples) assert.ok(sample.roundTripMs > 0 && sample.brain === 'rules', JSON.stringify(sample));
+    const summary = summarize(samples);
+    assert.equal(summary.turns, 8);
+    assert.equal(summary.brain, 'rules');
+    assert.ok(summary.p50_ms <= summary.p95_ms && summary.p95_ms <= summary.max_ms);
+    assert.equal(typeof summary.under_3s_p50, 'boolean');
+  } finally {
+    await s.close();
+  }
+});

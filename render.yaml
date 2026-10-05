@@ -131,6 +131,11 @@ services:
       # rules (offline) until Claude credentials are set; then claude-bedrock or claude-api
       - key: BRAIN
         value: rules
+      # sonnet (Claude Sonnet 5.5, default) or haiku (Claude Haiku 4.5, fastest); never Opus for voice
+      - key: CLAUDE_MODEL
+        value: sonnet
+      - key: CLAUDE_EFFORT
+        value: low
       - key: BEDROCK_REGION
         value: us-east-1
       - key: BEDROCK_AWS_ACCESS_KEY_ID
