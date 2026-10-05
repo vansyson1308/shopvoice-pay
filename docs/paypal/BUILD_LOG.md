@@ -11,7 +11,7 @@ Running log for ShopVoice Pay (PayPal AI Hackathon). Newest entry first. Times a
   - The voice model never sees invoice text.
 - PR #19 (merged): **supplier agent on PayPal's Cart API spec** (simulated suppliers), with a sequence diagram in SUPPLIER_AGENT.md (D18).
   - The buyer agent accepts a substitution only through the rules engine, within the hold.
-- PR #20 (open): **PayPal Agent Toolkit behind the policy layer** (D19, AGENT_TOOLKIT.md).
+- PR #20 (merged): **PayPal Agent Toolkit behind the policy layer** (D19, AGENT_TOOLKIT.md).
   - Tracking is added to the capture after delivery; `check_paypal_records` checks the ledger against PayPal's records; two-step catering invoices.
   - The toolkit runs on our token and our request ids. Refunds and merchant insights are denied.
   - Migration 025 adds `sales_invoices`.
@@ -22,7 +22,7 @@ Running log for ShopVoice Pay (PayPal AI Hackathon). Newest entry first. Times a
 - Evals: safety 100% of 25, quality 100% of 17.
 - Browser e2e: 2/2. `demo:e2e`: passed.
 - The MCP Docker image was built and the toolkit runs inside it.
-- Against the real PayPal sandbox: the toolkit created, sent and read back a catering invoice, and transaction search answered.
+- Against the real PayPal sandbox (locally and in CI's sandbox job): the toolkit created, sent and read back a catering invoice, and transaction search answered.
 - Tracking on a real capture is covered by a sandbox test that needs `SANDBOX_VAULT_ID`. It is skipped in CI until that secret exists.
 
 **Still waiting on the owner**: Render setup, the Claude credentials, `SANDBOX_SUPPLIER_EMAILS`, and optionally the `SANDBOX_VAULT_ID` / `SANDBOX_SUPPLIER_EMAIL` repo secrets.
