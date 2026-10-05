@@ -8,6 +8,8 @@ import type { PayPalRuntime } from './payments/config.js';
 import { PaymentsService } from './payments/service.js';
 import type { ShopStore } from './store.js';
 import { autoCommitRepository } from './auto-commit.js';
+import { createToolkitRunner } from './toolkit/agent-toolkit.js';
+import { ToolkitGateway, loadToolkitGatewayConfig } from './toolkit/toolkit-gateway.js';
 
 export interface PaymentsSetup {
   readonly service: PaymentsService;
@@ -30,7 +32,10 @@ export function loadPaymentsSetup(env: Record<string, string | undefined>, logge
     approvalTtlSeconds: Number.parseInt(env.PAYMENTS_APPROVAL_TTL_SECONDS ?? '900', 10) || 900,
     timeZone: env.SHOP_TIMEZONE || 'America/New_York'
   }, now);
-  logger.info('payments_ready', { paypal_mode: runtime.config.mode, return_base_url: consoleUrl });
+  // PayPal Agent Toolkit behind the policy layer (DECISIONS D19). PAYPAL_TOOLKIT=off disables it.
+  const toolkit = env.PAYPAL_TOOLKIT === 'off' ? null : new ToolkitGateway(createToolkitRunner(runtime, logger), loadToolkitGatewayConfig(env), now);
+  service.useToolkit(toolkit);
+  logger.info('payments_ready', { paypal_mode: runtime.config.mode, return_base_url: consoleUrl, agent_toolkit: toolkit ? 'on' : 'off' });
   return { service, runtime };
 }
 

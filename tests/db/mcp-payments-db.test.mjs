@@ -97,7 +97,8 @@ test('delivery and refund write captures, releases, payouts and refunds to the l
   assert.equal(Number(p.amount_settled_minor), 5600);
   assert.equal(Number(p.amount_refunded_minor), 700);
   assert.equal(p.deliveries, 1);
-  assert.deepEqual(p.kinds, ['policy_evaluated', 'authorized', 'captured', 'voided', 'payout_sent', 'refunded']);
+  // shipment_tracked: delivery tracking added to the PayPal capture through the Agent Toolkit (D19).
+  assert.deepEqual(p.kinds, ['policy_evaluated', 'authorized', 'captured', 'shipment_tracked', 'voided', 'payout_sent', 'refunded']);
 });
 
 test('webhooks can map a payment id to its tenant, and nothing else, without tenant context', { skip }, async () => {

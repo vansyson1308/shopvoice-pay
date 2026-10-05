@@ -309,3 +309,28 @@ A full id of either family is accepted too.
 **`negotiate_cart` tool.** It retries the order or reports the supplier order number. It never charges.
 
 **Hosting.** The agents are embedded in the MCP server by default, so there is no extra service to pay for. `SUPPLIER_AGENT_URL` targets a standalone deployment. See `docs/paypal/SUPPLIER_AGENT.md` for the sequence diagram.
+
+## D19. The PayPal Agent Toolkit runs behind the policy layer, called by server code with our own request ids (2026-10-05)
+
+**Decision.** ShopVoice uses `@paypal/agent-toolkit` 1.11 for the non-money PayPal features, but never hands its tools to the model. MCP tools call `ToolkitGateway` (the policy layer) with ShopVoice ids. The gateway calls the toolkit's own functions through `PayPalAPI` with an injected client.
+
+**What runs, and why it is safe.**
+- **Allow-list.** `create_invoice`, `send_invoice`, `get_invoice`, `create_shipment_tracking`, `get_shipment_tracking`, `list_transactions`. Everything else is refused before any call.
+- **Denied on purpose.**
+  - `create_refund`, `create_order`, `pay_order`, `capture_order`: they move money, so they stay in `PaymentsService`, behind the rules engine and the ledger.
+  - `get_merchant_insights`: unsupported in the sandbox (toolkit spike T8). Spend summaries come from the ledger.
+- **Request ids.** The toolkit sends `PayPal-Request-Id` only when its context has one. We inject a fresh client per call whose headers carry an id derived from the ledger row (`svp-track-<capture>`, `svp-inv-<number>`, `svp-inv-<number>-send`). Every toolkit POST therefore replays the same key on retry.
+- **Credentials.** The token comes from our `PayPalClient`, which refuses live hosts. The base URL is the sandbox, or, in mock mode, a loopback bridge (127.0.0.1, random path) into `MockPayPal`. The toolkit's real request code runs in every test, and nothing leaves the machine.
+- **PayPal ids.** Capture ids are looked up from the ledger by the gateway. PayPal invoice ids stay in `sales_invoices`. Neither reaches tool output (tested).
+
+**Features.**
+- **Shipment tracking.** When a delivery is charged, the capture gets tracking (status `DELIVERED`, the supplier agent's order number), recorded as a `shipment_tracked` ledger event. This is best-effort and never fails the charge. `get_delivery_tracking` reads it back and adds it if it is missing.
+- **PayPal records cross-check.** `check_paypal_records` compares the ledger's captures and refunds (≤ 31 days) with `list_transactions`. Sandbox search lags (spike T7), so an unlisted charge is reported as "not listed yet". Only a listed charge with a different amount is a mismatch.
+- **Catering invoices (sell side).** `create_catering_invoice` is two-step, like refunds:
+  - the preview is checked by server code: sandbox recipients only (`example.com` domains), 1–10 items, at most $500 each, total at most `CATERING_INVOICE_MAX_USD` (default $1,000), at most `CATERING_INVOICES_PER_DAY` (default 10); text is cleaned of control and bidi characters;
+  - the preview is stored as a draft in `sales_invoices` (migration 025, forced RLS);
+  - the confirmation token is HMAC-bound to the shop, invoice id, total and recipient, valid 5 minutes;
+  - in the voice console the host holds it and only the owner's "yes" sends it;
+  - `get_catering_invoices` refreshes paid status with `get_invoice`.
+
+**Switch.** `PAYPAL_TOOLKIT=off` disables all of it. See `docs/paypal/AGENT_TOOLKIT.md`.

@@ -26,16 +26,16 @@ function isPayPalError(error: unknown): boolean {
   return error instanceof PayPalApiError || error instanceof PayPalTransportError;
 }
 
-const SESSION_WRITE = { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true } as const;
-const NOT_SET_UP = 'Payments are not set up for this shop yet, so I cannot do that.';
+export const SESSION_WRITE = { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true } as const;
+export const NOT_SET_UP = 'Payments are not set up for this shop yet, so I cannot do that.';
 
 // ---------- shared helpers ----------
 
-async function supplierNames(repo: ShopRepository): Promise<Map<string, string>> {
+export async function supplierNames(repo: ShopRepository): Promise<Map<string, string>> {
   return new Map((await repo.listSuppliers()).map((s) => [s.code, s.name]));
 }
 
-function nameOf(names: Map<string, string>, code: string): string {
+export function nameOf(names: Map<string, string>, code: string): string {
   return names.get(code) ?? code;
 }
 
@@ -73,7 +73,7 @@ export function shortReason(r: PolicyReason): string {
   }
 }
 
-const paymentSchema = z.object({
+export const paymentSchema = z.object({
   payment_id: z.string(),
   supplier_code: z.string(),
   supplier_name: z.string(),
@@ -96,7 +96,7 @@ const paymentSchema = z.object({
 });
 type PaymentOut = z.infer<typeof paymentSchema>;
 
-function paymentOut(ctx: ToolContext, p: PublicPayment, names: Map<string, string>): PaymentOut {
+export function paymentOut(ctx: ToolContext, p: PublicPayment, names: Map<string, string>): PaymentOut {
   return {
     payment_id: p.paymentId,
     supplier_code: p.supplierCode,
@@ -127,7 +127,7 @@ function dayOf(iso: string | null, ctx: ToolContext): string | null {
 }
 
 /** Picks a payment by ledger id, or the latest one for a supplier that passes `accept`. */
-async function findPayment(bridge: PaymentsBridge, names: Map<string, string>, args: { payment_id?: string | undefined; supplier?: string | undefined }, accept: (p: PublicPayment) => boolean): Promise<PublicPayment | null> {
+export async function findPayment(bridge: PaymentsBridge, names: Map<string, string>, args: { payment_id?: string | undefined; supplier?: string | undefined }, accept: (p: PublicPayment) => boolean): Promise<PublicPayment | null> {
   const recent = await bridge.service.listPublicPayments(bridge.ctx, 200);
   const candidates = recent.filter((p) => {
     if (args.payment_id) return p.paymentId === args.payment_id;
@@ -137,7 +137,7 @@ async function findPayment(bridge: PaymentsBridge, names: Map<string, string>, a
   return candidates.find(accept) ?? null;
 }
 
-const lookupInput = {
+export const lookupInput = {
   payment_id: z.string().uuid().optional().describe('ShopVoice payment id from an earlier tool result.'),
   supplier: z.string().trim().min(2).max(80).optional().describe('Supplier name, e.g. "Valley Farm Eggs" or "the dairy".')
 };

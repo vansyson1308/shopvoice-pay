@@ -33,7 +33,7 @@ export type ApprovedBy = 'owner_voice' | 'owner_tap' | 'owner_paypal' | 'owner_e
 export type EventKind =
   | 'policy_evaluated' | 'approval_requested' | 'approved' | 'declined' | 'authorized' | 'reauthorized'
   | 'captured' | 'voided' | 'refunded' | 'payout_sent' | 'payout_completed' | 'failed' | 'webhook_received'
-  | 'cart_negotiated' | 'supplier_ordered';
+  | 'cart_negotiated' | 'supplier_ordered' | 'shipment_tracked';
 export type EventActor = 'agent' | 'owner' | 'system' | 'paypal';
 
 export interface PaymentRecord extends MoneyState {
@@ -103,6 +103,59 @@ export interface InvoiceMatchRecord {
   readonly varianceMinor: number;
   readonly extractor: string;
   readonly createdAt: string;
+}
+
+export type SalesInvoiceStatus = 'draft' | 'sent' | 'paid' | 'cancelled' | 'failed';
+
+export interface SalesInvoiceLine {
+  readonly name: string;
+  readonly qty: number;
+  readonly unitPriceMinor: number;
+}
+
+/**
+ * The shop's own catering invoice (sell side), sent through the PayPal Agent
+ * Toolkit after the owner confirms a preview. The PayPal invoice id stays here
+ * and in the toolkit gateway; tools show the ShopVoice id only.
+ */
+export interface SalesInvoiceRecord {
+  readonly id: string;
+  readonly status: SalesInvoiceStatus;
+  readonly customerEmail: string;
+  readonly customerName: string | null;
+  readonly lines: readonly SalesInvoiceLine[];
+  readonly totalMinor: number;
+  readonly currency: string;
+  readonly note: string;
+  readonly invoiceNumber: string;
+  readonly paypalInvoiceId: string | null;
+  readonly paypalRequestId: string;
+  readonly createdBy: 'agent' | 'owner';
+  readonly correlationId: string;
+  readonly createdAt: string;
+  readonly sentAt: string | null;
+  readonly updatedAt: string;
+}
+
+export type NewSalesInvoice = Omit<SalesInvoiceRecord, 'id' | 'status' | 'paypalInvoiceId' | 'createdAt' | 'sentAt' | 'updatedAt'>;
+
+export interface SalesInvoicePatch {
+  readonly status: SalesInvoiceStatus;
+  readonly paypalInvoiceId?: string;
+  readonly sentAt?: string;
+}
+
+const SALES_INVOICE_MOVES: Readonly<Record<SalesInvoiceStatus, readonly SalesInvoiceStatus[]>> = {
+  draft: ['sent', 'failed'],
+  failed: ['sent', 'failed'],
+  sent: ['paid', 'cancelled'],
+  paid: [],
+  cancelled: []
+};
+
+/** Throws on an illegal status move (a sent invoice never goes back to draft). */
+export function assertSalesInvoiceMove(from: SalesInvoiceStatus, to: SalesInvoiceStatus): void {
+  if (!SALES_INVOICE_MOVES[from].includes(to)) throw new Error(`sales_invoice_illegal_move: ${from} -> ${to}`);
 }
 
 /** Non-money fields a transition may set. `null` clears a field. */
@@ -181,4 +234,11 @@ export interface PaymentsRepository {
   recordInvoiceMatch(match: Omit<InvoiceMatchRecord, 'id' | 'createdAt'>): Promise<InvoiceMatchRecord>;
   /** Matches for a payment's deliveries, oldest first. */
   listInvoiceMatches(paymentId: string): Promise<InvoiceMatchRecord[]>;
+
+  createSalesInvoice(input: NewSalesInvoice): Promise<SalesInvoiceRecord>;
+  getSalesInvoice(id: string): Promise<SalesInvoiceRecord | null>;
+  /** Newest first. */
+  listSalesInvoices(opts?: { readonly sinceIso?: string; readonly limit?: number }): Promise<SalesInvoiceRecord[]>;
+  /** Moves the invoice through assertSalesInvoiceMove (locked re-read). */
+  updateSalesInvoice(id: string, patch: SalesInvoicePatch): Promise<SalesInvoiceRecord>;
 }

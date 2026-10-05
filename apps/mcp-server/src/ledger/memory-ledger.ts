@@ -9,10 +9,11 @@ import type { PriceObservation } from '../policy/anomaly.js';
 import { applyAction, assertLineSwap, newPaymentState } from './state-machine.js';
 import type {
   DeliveryRecord,
-  InvoiceMatchRecord, NewPayment, NewPaymentEvent, PaymentEventRecord, PaymentMethodStatus, PaymentPatch, PaymentRecord,
+  InvoiceMatchRecord, NewPayment, NewSalesInvoice, SalesInvoicePatch, SalesInvoiceRecord, NewPaymentEvent, PaymentEventRecord, PaymentMethodStatus, PaymentPatch, PaymentRecord,
   PaymentsRepository, StoredPaymentMethod, SupplierPayee
 } from './types.js';
 import type { LedgerAction } from './state-machine.js';
+import { assertSalesInvoiceMove } from './types.js';
 
 export interface MemoryPriceRow {
   readonly supplierCode: string;
@@ -50,6 +51,7 @@ export class MemoryPaymentsData {
   readonly events: PaymentEventRecord[] = [];
   readonly deliveries: DeliveryRecord[] = [];
   readonly invoiceMatches: InvoiceMatchRecord[] = [];
+  readonly salesInvoices: SalesInvoiceRecord[] = [];
 
   constructor(seed: MemoryPaymentsSeed = {}) {
     this.policy = seed.policy ?? null;
@@ -283,5 +285,41 @@ export class MemoryPaymentsRepository implements PaymentsRepository {
   async listInvoiceMatches(paymentId: string): Promise<InvoiceMatchRecord[]> {
     const ids = new Set(this.data.deliveries.filter((d) => d.paymentId === paymentId).map((d) => d.id));
     return this.data.invoiceMatches.filter((m) => ids.has(m.deliveryId));
+  }
+
+  async createSalesInvoice(input: NewSalesInvoice): Promise<SalesInvoiceRecord> {
+    if (this.data.salesInvoices.some((i) => i.paypalRequestId === input.paypalRequestId || i.invoiceNumber === input.invoiceNumber)) {
+      throw new LedgerConflictError('duplicate_request_id', 'sales invoice already exists');
+    }
+    const at = this.iso();
+    const row: SalesInvoiceRecord = { ...structuredClone(input), id: randomUUID(), status: 'draft', paypalInvoiceId: null, createdAt: at, sentAt: null, updatedAt: at };
+    this.data.salesInvoices.push(row);
+    return row;
+  }
+
+  async getSalesInvoice(id: string): Promise<SalesInvoiceRecord | null> {
+    return this.data.salesInvoices.find((i) => i.id === id) ?? null;
+  }
+
+  async listSalesInvoices(opts: { readonly sinceIso?: string; readonly limit?: number } = {}): Promise<SalesInvoiceRecord[]> {
+    const since = opts.sinceIso ? Date.parse(opts.sinceIso) : -Infinity;
+    return [...this.data.salesInvoices].filter((i) => Date.parse(i.createdAt) >= since).reverse().slice(0, opts.limit ?? 50);
+  }
+
+  async updateSalesInvoice(id: string, patch: SalesInvoicePatch): Promise<SalesInvoiceRecord> {
+    const index = this.data.salesInvoices.findIndex((i) => i.id === id);
+    const current = this.data.salesInvoices[index];
+    if (!current) throw new LedgerConflictError('not_found', 'sales invoice not found');
+    assertSalesInvoiceMove(current.status, patch.status);
+    const next: SalesInvoiceRecord = {
+      ...current,
+      status: patch.status,
+      ...(patch.paypalInvoiceId !== undefined ? { paypalInvoiceId: patch.paypalInvoiceId } : {}),
+      ...(patch.sentAt !== undefined ? { sentAt: patch.sentAt } : {}),
+      updatedAt: this.iso()
+    };
+    if ((next.status === 'sent' || next.status === 'paid' || next.status === 'cancelled') && !next.paypalInvoiceId) throw new Error('sales_invoice_needs_paypal_id');
+    this.data.salesInvoices[index] = next;
+    return next;
   }
 }

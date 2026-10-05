@@ -7,6 +7,18 @@ import { isAffirmative, isText, isToolUse, NEGATIVE, AFFIRMATIVE } from './brain
 import type { Toolbox } from './toolbox.js';
 
 export const MAX_TOOL_ROUNDS = 4;
+
+/**
+ * Two-step tools: the first call returns a confirmation_token, which the host
+ * keeps; the second call runs only on the owner's yes in that turn, with the
+ * host's token substituted for whatever the model sent.
+ */
+export const TWO_STEP_TOOLS = { request_refund: 'refund', create_catering_invoice: 'invoice' } as const;
+export type TwoStepTool = keyof typeof TWO_STEP_TOOLS;
+
+function isTwoStep(name: string): name is TwoStepTool {
+  return Object.hasOwn(TWO_STEP_TOOLS, name);
+}
 const HISTORY_LIMIT = 16;
 
 export interface ToolTrace {
@@ -36,8 +48,8 @@ export interface Conversation {
   readonly id: string;
   messages: ChatMessage[];
   pending: PendingConfirmation | null;
-  /** A refund confirmation token, held by the host like the reorder token. */
-  pendingRefund: string | null;
+  /** Confirmation tokens of two-step tools (refund, catering invoice), held by the host like the reorder token. */
+  heldTokens: Partial<Record<TwoStepTool, string>>;
   awaitingApproval: AwaitingApproval | null;
   lastSeenMs: number;
 }
@@ -72,12 +84,13 @@ export function systemPrompt(today: string): string {
     'Reorders are two-step: call create_reorder_draft, speak its summary, and wait. Only when the owner clearly says yes, call confirm_reorder (the host fills in the confirmation token). If they say no, do nothing.',
     "confirm_reorder pays suppliers through PayPal within the owner's spending rules; you cannot approve payments: when one waits for approval, the host asks the owner itself.",
     'When the owner says what was delivered (for example "only 8 crates of milk came"), call record_delivery. For refunds, rule changes, payment status, spend or "why", use the matching tool.',
+    'Refunds and catering invoices are two-step too: the first call returns a preview; only after a clear yes, call the same tool again with confirmation_token (the host fills it in).',
     'For "compared to last <weekday>" use get_sales_summary with compare_weekday. If a tool asks a clarifying question, ask it.'
   ].join(' ');
 }
 
 export function newConversation(id: string, now: number): Conversation {
-  return { id, messages: [], pending: null, pendingRefund: null, awaitingApproval: null, lastSeenMs: now };
+  return { id, messages: [], pending: null, heldTokens: {}, awaitingApproval: null, lastSeenMs: now };
 }
 
 /**
@@ -88,6 +101,7 @@ export function newConversation(id: string, now: number): Conversation {
 export const OWNER_INTENT: Readonly<Record<string, { readonly pattern: RegExp; readonly refusal: string }>> = {
   record_delivery: { pattern: /\b(arriv|came|come|deliver|got|showed|received|nothing|short|missing|only)\w*/i, refusal: 'The owner did not report a delivery in this turn. Ask what arrived.' },
   request_refund: { pattern: /\b(refund|money back|credit|return|stale|spoil|damaged|wrong)\w*/i, refusal: 'The owner did not ask for a refund in this turn.' },
+  create_catering_invoice: { pattern: /\b(invoice|bill|cater)\w*/i, refusal: 'The owner did not ask to invoice a customer in this turn.' },
   set_spending_policy: { pattern: /\b(limit|budget|cap|rule|polic|approve|approved|supplier|allow|threshold|auto-?pay|spend)\w*/i, refusal: 'The owner did not ask to change the spending rules in this turn.' }
 };
 
@@ -192,10 +206,11 @@ export async function runTurn(opts: {
         if (!affirmed) blocked = 'The owner has not said yes in this turn. Ask them to confirm first.';
         else if (!conversation.pending) blocked = 'There is no pending reorder draft to confirm.';
         else args.confirmation_token = conversation.pending.token;
-      } else if (name === 'request_refund' && args.confirmation_token !== undefined) {
-        if (!affirmed) blocked = 'The owner has not said yes in this turn. Ask them to confirm the refund first.';
-        else if (!conversation.pendingRefund) blocked = 'There is no pending refund to confirm.';
-        else args.confirmation_token = conversation.pendingRefund;
+      } else if (isTwoStep(name) && args.confirmation_token !== undefined) {
+        const held = conversation.heldTokens[name];
+        if (!affirmed) blocked = `The owner has not said yes in this turn. Ask them to confirm the ${TWO_STEP_TOOLS[name]} first.`;
+        else if (!held) blocked = `There is no pending ${TWO_STEP_TOOLS[name]} to confirm.`;
+        else args.confirmation_token = held;
       } else if (OWNER_INTENT[name] && !OWNER_INTENT[name]?.pattern.test(userText)) {
         blocked = OWNER_INTENT[name]?.refusal;
       }
@@ -216,8 +231,10 @@ export async function runTurn(opts: {
         conversation.awaitingApproval = null;
         confirmationCard = redactStructured(structured);
       }
-      if (name === 'request_refund' && structured) {
-        conversation.pendingRefund = structured.status === 'needs_confirmation' && typeof structured.confirmation_token === 'string' ? structured.confirmation_token : null;
+      if (isTwoStep(name) && structured) {
+        if (structured.status === 'needs_confirmation' && typeof structured.confirmation_token === 'string') conversation.heldTokens[name] = structured.confirmation_token;
+        // PayPal failed after the owner's yes: keep the token so "confirm" retries (same request ids).
+        else if (structured.status !== 'failed') delete conversation.heldTokens[name];
       }
       if (name === 'confirm_reorder' && structured) {
         orderResult = structured;

@@ -26,6 +26,7 @@ import { createPayout } from './payouts.js';
 import { findLink } from './types.js';
 import type { PayPalOrder } from './types.js';
 import { speakMoney } from './money.js';
+import type { ToolkitGateway } from '../toolkit/toolkit-gateway.js';
 
 const DAY_MS = 86_400_000;
 export const HONOR_PERIOD_MS = 3 * DAY_MS;
@@ -154,6 +155,7 @@ function money(amountMinor: number, currency: string): string {
 
 export class PaymentsService {
   private afterHold: AfterAuthorized | null = null;
+  private toolkitGateway: ToolkitGateway | null = null;
   private readonly notes = new Map<string, string>();
 
   constructor(private readonly paypal: PayPalClient, private readonly config: PaymentsServiceConfig, private readonly now: () => number = Date.now) {}
@@ -161,6 +163,25 @@ export class PaymentsService {
   /** Wires the supplier agent's cart checkout (or nothing) to run after every hold. */
   useAfterAuthorized(hook: AfterAuthorized | null): void {
     this.afterHold = hook;
+  }
+
+  /** Wires the PayPal Agent Toolkit gateway (shipment tracking, PayPal records, catering invoices). */
+  useToolkit(gateway: ToolkitGateway | null): void {
+    this.toolkitGateway = gateway;
+  }
+
+  get toolkit(): ToolkitGateway | null {
+    return this.toolkitGateway;
+  }
+
+  /** After a delivery is charged: add tracking to the PayPal capture. Best-effort; never fails the charge. */
+  private async onCaptured(ctx: ServiceContext, payment: PaymentRecord, captureId: string): Promise<void> {
+    if (!this.toolkitGateway) return;
+    try {
+      await this.toolkitGateway.trackDelivery(ctx, payment, captureId);
+    } catch {
+      // Retried when the owner asks about tracking (ToolkitGateway.tracking).
+    }
   }
 
   private async onHold(ctx: ServiceContext, payment: PaymentRecord): Promise<PaymentRecord> {
@@ -588,6 +609,7 @@ export class PaymentsService {
       patch: { addCaptureId: capture.id },
       event: { kind: 'captured', amountMinor: value, actor: 'system', reason: final ? 'Everything arrived' : `Charged for what arrived (${d.source})`, paypalRequestId: captureId, paypalResourceId: capture.id, correlationId: ctx.correlationId }
     });
+    await this.onCaptured(ctx, payment, capture.id);
     if (final) {
       return { payment: toPublicPayment(payment), deliveryId: await note(), speech: `Everything from ${name} arrived. Charged ${money(value, payment.currency)}.` };
     }

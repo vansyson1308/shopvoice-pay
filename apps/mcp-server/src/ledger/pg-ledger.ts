@@ -10,8 +10,10 @@ import type { LedgerAction, PaymentStatus } from './state-machine.js';
 import { LedgerConflictError } from './memory-ledger.js';
 import type {
   ApprovedBy, DeliveryOutcome, DeliveryRecord, InvoiceMatchRecord, NewPayment, ReceivedLine, NewPaymentEvent, PaymentDecision, PaymentEventRecord, PaymentMethodStatus, PaymentPatch,
-  PaymentRecord, PaymentsRepository, StoredPaymentMethod, SupplierPayee, EventActor, EventKind
+  PaymentRecord, PaymentsRepository, StoredPaymentMethod, SupplierPayee, EventActor, EventKind,
+  NewSalesInvoice, SalesInvoiceLine, SalesInvoicePatch, SalesInvoiceRecord, SalesInvoiceStatus
 } from './types.js';
+import { assertSalesInvoiceMove } from './types.js';
 
 type Queryable = Pick<PgClientLike, 'query'>;
 type Row = Record<string, unknown>;
@@ -388,6 +390,80 @@ export class PgPaymentsRepository implements PaymentsRepository {
     );
     return rows.map(toInvoiceMatch);
   }
+
+  async createSalesInvoice(input: NewSalesInvoice): Promise<SalesInvoiceRecord> {
+    try {
+      const { rows } = await this.client.query(
+        `INSERT INTO sales_invoices (tenant_id, status, customer_email, customer_name, lines, total_minor, currency, note, invoice_number, paypal_request_id, created_by, correlation_id)
+         VALUES (_rls_tenant_id(), 'draft', $1, $2, $3::jsonb, $4, $5, $6, $7, $8, $9, $10)
+         RETURNING ${SALES_INVOICE_COLUMNS}`,
+        [input.customerEmail, input.customerName, JSON.stringify(input.lines), input.totalMinor, input.currency, input.note, input.invoiceNumber, input.paypalRequestId, input.createdBy, input.correlationId]
+      );
+      return toSalesInvoice(rows[0] as Row);
+    } catch (error) {
+      if (isUniqueViolation(error, 'uq_sales_invoices_request') || isUniqueViolation(error, 'uq_sales_invoices_number')) {
+        throw new LedgerConflictError('duplicate_request_id', 'sales invoice already exists');
+      }
+      throw error;
+    }
+  }
+
+  async getSalesInvoice(id: string): Promise<SalesInvoiceRecord | null> {
+    if (!isUuid(id)) return null;
+    const { rows } = await this.client.query(`SELECT ${SALES_INVOICE_COLUMNS} FROM sales_invoices WHERE tenant_id = _rls_tenant_id() AND id = $1`, [id]);
+    return rows[0] ? toSalesInvoice(rows[0] as Row) : null;
+  }
+
+  async listSalesInvoices(opts: { readonly sinceIso?: string; readonly limit?: number } = {}): Promise<SalesInvoiceRecord[]> {
+    const { rows } = await this.client.query(
+      `SELECT ${SALES_INVOICE_COLUMNS} FROM sales_invoices
+        WHERE tenant_id = _rls_tenant_id() AND ($1::timestamptz IS NULL OR created_at >= $1::timestamptz)
+        ORDER BY created_at DESC, id DESC LIMIT $2`,
+      [opts.sinceIso ?? null, Math.max(1, Math.min(500, opts.limit ?? 50))]
+    );
+    return rows.map(toSalesInvoice);
+  }
+
+  async updateSalesInvoice(id: string, patch: SalesInvoicePatch): Promise<SalesInvoiceRecord> {
+    const { rows: current } = await this.client.query(`SELECT status FROM sales_invoices WHERE tenant_id = _rls_tenant_id() AND id = $1 FOR UPDATE`, [id]);
+    if (!current[0]) throw new LedgerConflictError('not_found', 'sales invoice not found');
+    assertSalesInvoiceMove(str((current[0] as Row).status) as SalesInvoiceStatus, patch.status);
+    const { rows } = await this.client.query(
+      `UPDATE sales_invoices SET status = $2, paypal_invoice_id = COALESCE($3, paypal_invoice_id), sent_at = COALESCE($4::timestamptz, sent_at), updated_at = now()
+        WHERE tenant_id = _rls_tenant_id() AND id = $1
+        RETURNING ${SALES_INVOICE_COLUMNS}`,
+      [id, patch.status, patch.paypalInvoiceId ?? null, patch.sentAt ?? null]
+    );
+    return toSalesInvoice(rows[0] as Row);
+  }
+}
+
+const SALES_INVOICE_COLUMNS = `id, status, customer_email, customer_name, lines, total_minor, currency, note, invoice_number, paypal_invoice_id,
+  paypal_request_id, created_by, correlation_id, created_at, sent_at, updated_at`;
+
+function isUuid(value: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
+}
+
+function toSalesInvoice(r: Row): SalesInvoiceRecord {
+  return {
+    id: str(r.id),
+    status: str(r.status) as SalesInvoiceStatus,
+    customerEmail: str(r.customer_email),
+    customerName: strOrNull(r.customer_name),
+    lines: (Array.isArray(r.lines) ? r.lines : []) as SalesInvoiceLine[],
+    totalMinor: num(r.total_minor),
+    currency: str(r.currency),
+    note: str(r.note),
+    invoiceNumber: str(r.invoice_number),
+    paypalInvoiceId: strOrNull(r.paypal_invoice_id),
+    paypalRequestId: str(r.paypal_request_id),
+    createdBy: str(r.created_by) as SalesInvoiceRecord['createdBy'],
+    correlationId: str(r.correlation_id),
+    createdAt: iso(r.created_at),
+    sentAt: isoOrNull(r.sent_at),
+    updatedAt: iso(r.updated_at)
+  };
 }
 
 function toInvoiceMatch(r: Row): InvoiceMatchRecord {
