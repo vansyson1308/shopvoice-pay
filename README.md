@@ -5,7 +5,7 @@
 **A voice-first purchasing agent for independent grocers. It reorders from suppliers and pays them through PayPal, but only within spending rules the owner sets, and it pays only for what actually arrived.**
 
 > Status: **M4 complete** for the [PayPal AI Hackathon](https://paypalaihackathon.devpost.com) (Oct–Nov 2026). The money path, Claude brain, invoice 3-way match, simulated Cart API suppliers, Agent Toolkit integration and threat model are built and tested in CI.
-> Still to come before submission: the hosted demo URL and the demo video link. Both will be added here.
+> **Hosted demo:** https://shopvoice-console.onrender.com · Demo video: coming soon.
 
 ## The 30-second pitch
 
@@ -21,7 +21,13 @@ Meet Maria (fictional), who runs a corner store in Queens. While closing up, she
 
 ## Try it
 
-**Hosted demo:** coming soon (Render, see [docs/paypal/DEPLOY.md](docs/paypal/DEPLOY.md)). It has a "Try the demo" button that gives each visitor a private sample shop, and a "Reset demo" button.
+**Hosted demo:** https://shopvoice-console.onrender.com (Render, PayPal sandbox, Claude Sonnet 5.5; see [docs/paypal/DEPLOY.md](docs/paypal/DEPLOY.md)).
+
+1. Click **Try the demo**. You get a private sample shop; **Reset demo** starts it over.
+2. Optional, for auto-pay from a saved PayPal: **Rules & PayPal → Connect PayPal** and log in with a PayPal *sandbox* buyer account (judges: credentials are in the Devpost testing instructions). Without it, each order asks you to approve it in PayPal.
+3. In **Talk**, hold the mic button (Chrome or Edge) or type: "Reorder milk and eggs" → "Yes, confirm" → "Yes, approve it" → "Only 8 crates of milk came" → "Two crates of milk were spoiled, refund them" → "Yes". Watch the **Ledger** tab.
+
+No real money moves: everything runs in the PayPal sandbox.
 
 **Locally (about 2 minutes, Node 20+, no accounts needed):**
 
