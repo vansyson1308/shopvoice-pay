@@ -33,7 +33,7 @@ That is about **$21 per month**. Paid instances do not sleep, which the demo nee
    - Open the console URL, click **Try the demo**, and run the hero story.
    - Proxy hop setting: the `demo_shop_created` and rate-limit logs on the MCP service should show visitor addresses, not Render's. If they show a 10.x address, set `MCP_TRUST_PROXY` and `SIM_TRUST_PROXY` to `1`.
 7. **Claude (when access is ready).** On `shopvoice-console`:
-   - Set `BRAIN=claude-bedrock` plus `BEDROCK_AWS_ACCESS_KEY_ID` and `BEDROCK_AWS_SECRET_ACCESS_KEY`. Alternatively, set `BRAIN=claude-api` with `ANTHROPIC_API_KEY`.
+   - `render.yaml` sets `BRAIN=claude-api`, which needs `ANTHROPIC_API_KEY`. For Claude in Amazon Bedrock instead, change it to `claude-bedrock` and set `BEDROCK_AWS_ACCESS_KEY_ID` and `BEDROCK_AWS_SECRET_ACCESS_KEY`.
    - `CLAUDE_MODEL=sonnet` (Claude Sonnet 5.5, the default) or `haiku` (Claude Haiku 4.5, fastest). Opus is refused for the voice loop.
    - IAM in us-east-1:
      - Sonnet 5.5 is served on Bedrock's Mantle endpoint and needs `bedrock-mantle:CreateInference` on its model ARN.

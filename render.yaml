@@ -128,9 +128,11 @@ services:
         value: "true"
       - key: SIM_TRUST_PROXY
         value: "2"
-      # rules (offline) until Claude credentials are set; then claude-bedrock or claude-api
+      # claude-api (Anthropic API, ANTHROPIC_API_KEY below) for the hosted demo. claude-bedrock uses the
+      # BEDROCK_* keys instead; rules is the offline brain (no Claude). If Claude errors during a turn,
+      # the console falls back to the rules brain and says so.
       - key: BRAIN
-        value: rules
+        value: claude-api
       # sonnet (Claude Sonnet 5.5, default) or haiku (Claude Haiku 4.5, fastest); never Opus for voice
       - key: CLAUDE_MODEL
         value: sonnet
