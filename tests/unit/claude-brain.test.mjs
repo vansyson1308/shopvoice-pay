@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { fileURLToPath } from 'node:url';
 import { ClaudeBrain, claudeClientFromEnv, toClaudeMessages, fromClaudeContent, resolveVoiceModel, bedrockEndpointFor, DEFAULT_BEDROCK_MODEL } from '../../apps/console/dist/claude-brain.js';
-import { runTurn, newConversation, approvalAnswer } from '../../apps/console/dist/agent.js';
+import { runTurn, newConversation, approvalAnswer, HOST_NOTE_PREFIX } from '../../apps/console/dist/agent.js';
 import { McpToolbox } from '../../apps/console/dist/toolbox.js';
 import { RulesBrain } from '../../apps/console/dist/brain.js';
 import { BrowserSpeech } from '../../apps/console/dist/speech.js';
@@ -210,4 +210,26 @@ test('voice: "no" leaves it unpaid; any other request drops the question so a la
   } finally {
     await s.close();
   }
+});
+
+test('a host-handled approval is recorded as server fact, so Claude does not later retract it', async () => {
+  const client = stubClient([msg([{ type: 'text', text: 'The eggs are held, not charged.' }], 'end_turn')]);
+  const brain = new ClaudeBrain(client, CONFIG);
+  const conversation = newConversation('c', Date.now());
+  conversation.awaitingApproval = { paymentId: 'p1', supplierName: 'Valley Farm Eggs', amount: '$142' };
+  const speech = 'Approved. $142 to Valley Farm Eggs is held. Valley Farm Eggs was out of Large eggs 30 ct, so I took 20 × Large eggs 15 ct at the same price.';
+  const payment = { id: 'p1', supplier_name: 'Valley Farm Eggs', lines: [{ sku: 'EGGS-15', name: 'Large eggs 15 ct', qty: 20 }] };
+  const approver = { approve: async () => ({ ok: true, speech, payment }), decline: async () => ({ ok: true, speech: 'no', payment }) };
+  const toolbox = { listTools: async () => [], callTool: async () => { throw new Error('no tools expected'); } };
+  const base = { conversation, brain, toolbox, today: ANCHOR, now: Date.now, approver };
+
+  const approved = await runTurn({ ...base, userText: 'Yes, approve it' });
+  assert.equal(approved.brain.kind, 'host', 'the model did not take the approval turn');
+  assert.equal(client.requests.length, 0);
+
+  await runTurn({ ...base, userText: 'What happened with the eggs?' });
+  const sent = JSON.stringify(client.requests[0].messages);
+  assert.ok(sent.includes(HOST_NOTE_PREFIX), 'the next request tells Claude the host took that turn');
+  assert.ok(sent.includes('EGGS-15'), 'with the server payment record behind the reply');
+  assert.ok(JSON.stringify(client.requests[0].system).includes('Never retract'), 'the system prompt says host results are true');
 });
