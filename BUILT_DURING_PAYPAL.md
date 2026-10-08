@@ -1,6 +1,6 @@
 # Built during the PayPal AI Hackathon
 
-The PayPal AI Hackathon submission period opened on **Oct 1, 2026, 9:00 PT**. The rules allow existing code only if it is "significantly updated after the start of the Hackathon Submission Period".
+The PayPal AI Hackathon submission period opened on **Oct 1, 2026, 9:15 PT**. The rules allow existing code only if it is "significantly updated after the start of the Hackathon Submission Period".
 
 ## What existed before
 
@@ -31,5 +31,11 @@ Every commit after the import. The table is updated at each milestone; `git log 
 | 2026-10-04 | Day-1 sandbox spike (PR #3) | Real sandbox evidence, automated sandbox buyer approval, mock aligned with the sandbox, settlement decision confirmed |
 | 2026-10-04 | Ledger (PR #4) | Migration 019 with RLS, ledger state machine with a property test, memory/Postgres payments repository |
 | 2026-10-04 | PaymentsService (PR #5) | Vault onboarding, pay within policy, step-up approval, capture on delivery, refunds, Payouts settlement; hero money path verified in sandbox |
+| 2026-10-04 | M2 (PRs #6–#16) | US demo seed; payment MCP tools with approval outside the model; owner API, PayPal return pages and verified webhooks; "Try the demo" private sample shops; Claude brain (Bedrock / Anthropic API) with voice approval matched by code; console redesign with AG Grid ledger; agent evals and browser e2e; Render blueprint; site pages |
+| 2026-10-05 | M3: Claude Sonnet 5.5 voice brain (PR #17) | Haiku 4.5 fast option, model chosen by env, Opus refused, voice latency probe |
+| 2026-10-05 | M4: invoice photo → 3-way match (PR #18) | Claude vision reads invoices as untrusted input; prompt-injection tests |
+| 2026-10-05 | M4: supplier agent (PR #19) | Simulated suppliers on PayPal's Cart API spec; substitutions only through the rules engine |
+| 2026-10-05 | M4: PayPal Agent Toolkit (PR #20) | Shipment tracking, PayPal records check, catering invoices, run by server code behind the policy layer |
+| 2026-10-05 | SECURITY.md (PR #21) | Threat model of 11 threats linked to 77 tests, checked in CI |
 
-Planned for the following milestones (see `docs/paypal/BUILD_LOG.md`): spending policy engine, payment ledger and migration 019, vault onboarding, paying confirm_reorder, delivery capture with 3-way match, refunds, the LLM brain with safety evals, the console redesign with AG Grid, the simulated Cart API supplier agent, Agent Toolkit integration, and the hosted demo.
+Still to come: the hosted demo on Render and the demo video.

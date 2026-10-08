@@ -4,8 +4,8 @@
 
 **A voice-first purchasing agent for independent grocers. It reorders from suppliers and pays them through PayPal, but only within spending rules the owner sets, and it pays only for what actually arrived.**
 
-> Status: **M0, under construction** for the [PayPal AI Hackathon](https://paypalaihackathon.devpost.com) (Oct–Nov 2026).
-> The hosted demo, sandbox buyer login and video link will be added here before submission. Until then, the sections below that say "planned" describe planned work, not finished features.
+> Status: **M4 complete** for the [PayPal AI Hackathon](https://paypalaihackathon.devpost.com) (Oct–Nov 2026). The money path, Claude brain, invoice 3-way match, simulated Cart API suppliers, Agent Toolkit integration and threat model are built and tested in CI.
+> Still to come before submission: the hosted demo URL and the demo video link. Both will be added here.
 
 ## The 30-second pitch
 
@@ -21,16 +21,28 @@ Meet Maria (fictional), who runs a corner store in Queens. While closing up, she
 
 ## Try it
 
-**Hosted demo:** planned (Render, see [docs/paypal/DEPLOY.md](docs/paypal/DEPLOY.md)). It will include the sandbox buyer login and a "Reset demo" button.
+**Hosted demo:** coming soon (Render, see [docs/paypal/DEPLOY.md](docs/paypal/DEPLOY.md)). It has a "Try the demo" button that gives each visitor a private sample shop, and a "Reset demo" button.
 
-**Locally, today (about 2 minutes, no accounts needed):**
+**Locally (about 2 minutes, Node 20+, no accounts needed):**
 
 ```bash
 git clone https://github.com/vansyson1308/shopvoice-pay && cd shopvoice-pay
 npm ci
-npm test            # build + unit tests, with PayPal mocked
+npm test            # build + 284 unit tests, with PayPal mocked
 npm run demo:e2e    # voice flow against the in-memory demo store
+npm run evals       # 25 safety + 17 quality agent cases
 ```
+
+**Open the console in your browser** (two terminals, after `npm test` has built the project):
+
+```bash
+# terminal 1: MCP server with the in-memory demo shop and simulated PayPal
+MCP_DATA_BACKEND=memory DEMO_PROVISION_SECRET=local-demo-secret-0123456789abcdef npm run start:mcp
+# terminal 2: console
+DEMO_PROVISION_SECRET=local-demo-secret-0123456789abcdef npm run start:console
+```
+
+Then open http://localhost:8091, click **Try the demo**, and say or type "Reorder milk and eggs". Use Chrome or Edge for push-to-talk speech recognition. This runs the offline rules brain. To use Claude, also set `BRAIN=claude-api` and `ANTHROPIC_API_KEY` in terminal 2 (see [AI used](#ai-used-and-what-is-simulated)).
 
 `PAYPAL_MODE=mock` (the default) runs an in-process fake of the PayPal endpoints we use, so nothing leaves your machine. Its behaviour was calibrated against the real sandbox ([SPIKE.md](docs/paypal/SPIKE.md)). To run against the real PayPal sandbox, copy `.env.example` to `.env`, set `PAYPAL_MODE=sandbox` with sandbox REST app credentials, and run `npm run spike` and `npm run test:sandbox`.
 
@@ -78,7 +90,9 @@ In production, ShopVoice would use PayPal's multiparty partner onboarding, so su
 
 ## AI used, and what is simulated
 
-- **LLM brain** (planned for M2): tool calling through Amazon Bedrock, OpenAI or Anthropic, chosen by the `BRAIN` env var. An offline `rules` brain runs the tests. The LLM handles understanding requests, summarising spend, reading supplier invoices (vision), negotiating substitutions within policy, and explaining decisions. **It never decides whether money moves.**
+- **Claude brain:** Claude Sonnet 5.5 by default, or Claude Haiku 4.5 as the fast option (`CLAUDE_MODEL=sonnet|haiku`), called through Claude in Amazon Bedrock (`BRAIN=claude-bedrock`) or the Anthropic API (`BRAIN=claude-api`). It understands spoken requests, calls the MCP tools, summarises spend and explains decisions. Opus is refused for the voice loop to keep turns fast. If Claude is unreachable, the console falls back to the offline `rules` brain and says so. The `rules` brain also runs the tests.
+- **Invoice vision:** Claude reads a photo of a supplier invoice into line items for the 3-way match. The photo is treated as untrusted: it can only lower or hold a charge, and its text never reaches the voice brain ([SECURITY.md](SECURITY.md)).
+- **It never decides whether money moves.** The deterministic rules engine does, and spoken approvals are matched by code, not by the model. Agent evals check this: 25 safety cases, including a scripted adversarial model, gated at 100% in CI.
 - **Simulated:** the supplier's seller agent implements PayPal's Cart API merchant spec. In production, PayPal Store Sync would connect real suppliers. Anything simulated is labelled as such in the UI.
 - All store, supplier and product data is fictional. Products have generic names ("Whole milk, 1 gal").
 
@@ -86,11 +100,13 @@ In production, ShopVoice would use PayPal's multiparty partner onboarding, so su
 
 ```
 apps/mcp-server   MCP server, OAuth 2.1, REST for the console, payments client (src/payments)
-apps/console      push-to-talk voice + chat console (MCP client)
+apps/console      push-to-talk voice + chat console (MCP client), Claude brain, invoice reader
+apps/supplier-agent  simulated supplier agents on PayPal's Cart API spec
 packages/common   logging, Postgres/RLS helpers, rate limiting, crypto
 db/migrations     Postgres schema with forced row-level security
 scripts/paypal    sandbox spike runners
-tests/            unit (PayPal mocked), db (Postgres), sandbox (real sandbox, opt-in)
+tests/            unit (PayPal mocked), db (Postgres), e2e (browser), sandbox (real sandbox, opt-in)
+evals/            agent safety and quality cases
 docs/paypal       spike, architecture, decisions, build log
 ```
 
