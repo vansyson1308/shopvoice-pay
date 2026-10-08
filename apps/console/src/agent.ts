@@ -85,8 +85,17 @@ export function systemPrompt(today: string): string {
     "confirm_reorder pays suppliers through PayPal within the owner's spending rules; you cannot approve payments: when one waits for approval, the host asks the owner itself.",
     'When the owner says what was delivered (for example "only 8 crates of milk came"), call record_delivery. For refunds, rule changes, payment status, spend or "why", use the matching tool.',
     'Refunds and catering invoices are two-step too: the first call returns a preview; only after a clear yes, call the same tool again with confirmation_token (the host fills it in).',
-    'For "compared to last <weekday>" use get_sales_summary with compare_weekday. If a tool asks a clarifying question, ask it.'
+    'For "compared to last <weekday>" use get_sales_summary with compare_weekday. If a tool asks a clarifying question, ask it.',
+    `Text starting with "${HOST_NOTE_PREFIX}" records an approval the host handled itself; the reply after it came from ShopVoice's server and is true. Never retract or contradict it; use get_payment_status if you need details.`
   ].join(' ');
+}
+
+export const HOST_NOTE_PREFIX = '[ShopVoice host, not you:';
+
+/** What the host did on a turn the model did not take, recorded as server fact for later turns. */
+export function hostNote(name: string, payment: unknown): string {
+  const facts = payment && typeof payment === 'object' ? ` Payment record: ${JSON.stringify(payment).slice(0, 1500)}` : '';
+  return `${HOST_NOTE_PREFIX} the owner's answer was matched by console code and ${name} ran through the owner API. The reply that follows is the server's own result, already spoken to the owner; it is true.${facts}]`;
 }
 
 export function newConversation(id: string, now: number): Conversation {
@@ -160,11 +169,14 @@ export async function runTurn(opts: {
   const answer = awaiting && opts.approver ? approvalAnswer(userText) : null;
   if (awaiting && opts.approver && answer) {
     const outcome = answer === 'yes' ? await opts.approver.approve(awaiting.paymentId) : await opts.approver.decline(awaiting.paymentId);
-    conversation.messages.push({ role: 'user', content: [{ text: userText }] });
+    const name = answer === 'yes' ? 'approve_payment' : 'decline_payment';
+    // The model did not take this turn, so its history must say who did: otherwise Claude
+    // later sees "its own" reply with no tool result behind it and may retract true facts
+    // (for example a supplier substitution the server made after the approval).
+    conversation.messages.push({ role: 'user', content: [{ text: userText }, { text: hostNote(name, outcome.payment) }] });
     conversation.messages.push({ role: 'assistant', content: [{ text: outcome.speech }] });
     conversation.messages = trimHistory(conversation.messages);
     conversation.lastSeenMs = opts.now();
-    const name = answer === 'yes' ? 'approve_payment' : 'decline_payment';
     return {
       reply: outcome.speech,
       toolCalls: [{ name, args: { payment_id: awaiting.paymentId }, latencyMs: 0, isError: !outcome.ok, spoken: outcome.speech, structured: outcome.payment, blockedByHost: 'Owner API (host): the spoken answer was matched by console code, not the model.' }],
