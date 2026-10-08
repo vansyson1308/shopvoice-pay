@@ -1,6 +1,6 @@
 # ShopVoice Pay
 
-[![M8ven Score](https://m8ven.ai/badge/mcp/vansyson1308-shopvoice-pay-1l94ym?v=d3becca6f0e81bfbc6c5f1186a8a782a&variant=verified)](https://m8ven.ai/mcp/vansyson1308-shopvoice-pay-1l94ym?s=readme)
+[![M8ven Score](https://m8ven.ai/badge/mcp/vansyson1308-shopvoice-pay-1l94ym?v=427b09930c35b48396729a1e1ffacadc&variant=verified)](https://m8ven.ai/mcp/vansyson1308-shopvoice-pay-1l94ym?s=readme)
 
 **A voice-first purchasing agent for independent grocers. It reorders from suppliers and pays them through PayPal, but only within spending rules the owner sets, and it pays only for what actually arrived.**
 
