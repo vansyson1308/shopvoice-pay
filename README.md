@@ -5,7 +5,7 @@
 **A voice-first purchasing agent for independent grocers. It reorders from suppliers and pays them through PayPal, but only within spending rules the owner sets, and it pays only for what actually arrived.**
 
 > Status: **M4 complete** for the [PayPal AI Hackathon](https://paypalaihackathon.devpost.com) (Oct–Nov 2026). The money path, Claude brain, invoice 3-way match, simulated Cart API suppliers, Agent Toolkit integration and threat model are built and tested in CI.
-> **Hosted demo:** https://shopvoice-console.onrender.com · Demo video: coming soon.
+> **Hosted demo:** https://shopvoice-console.onrender.com · **Demo video (2:51):** https://youtu.be/fEyA5FxntFQ
 
 ## The 30-second pitch
 
