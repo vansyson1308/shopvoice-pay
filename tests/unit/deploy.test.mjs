@@ -103,3 +103,20 @@ test('render.yaml: services, Dockerfiles and the pre-deploy script exist, and ev
   assert.ok(keys.length > 20);
   for (const key of keys) assert.ok(new RegExp(`\\b${key}\\b`).test(code), `render.yaml sets ${key}, which no code reads`);
 });
+
+test('Dockerfiles: one base-image ARG, defaulting to what Render builds with; CI overrides only via --build-arg', () => {
+  const defaults = ['apps/mcp-server/Dockerfile', 'apps/console/Dockerfile'].map((path) => {
+    const text = readFileSync(path, 'utf8');
+    const froms = [...text.matchAll(/^FROM (\S+)/gm)].map((m) => m[1]);
+    assert.ok(froms.length >= 2, path);
+    for (const from of froms) assert.equal(from, '${NODE_BASE_IMAGE}', `${path}: every stage builds on the ARG`);
+    assert.ok(text.indexOf('ARG NODE_BASE_IMAGE=') < text.indexOf('FROM '), `${path}: the ARG is declared before the first FROM`);
+    return text.match(/^ARG NODE_BASE_IMAGE=(\S+)$/m)?.[1];
+  });
+  assert.equal(defaults[0], 'public.ecr.aws/docker/library/node:22-bookworm-slim', 'Render keeps building from the same image');
+  assert.equal(defaults[1], defaults[0]);
+  // Render turns service env vars into build args; nothing in the Blueprint may silently swap the base image.
+  assert.doesNotMatch(readFileSync('render.yaml', 'utf8'), /NODE_BASE_IMAGE/);
+  const ci = readFileSync('.github/workflows/ci.yml', 'utf8');
+  assert.equal([...ci.matchAll(/docker build --build-arg NODE_BASE_IMAGE="\$\{\{ steps\.base\.outputs\.image \}\}"/g)].length, 2, 'CI builds both images from the pulled mirror');
+});

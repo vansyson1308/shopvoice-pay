@@ -1,5 +1,9 @@
 # Build context: the repository root (docker build -f apps/mcp-server/Dockerfile .)
-FROM public.ecr.aws/docker/library/node:22-bookworm-slim AS build
+# The Node base image. The default is what Render builds with; CI overrides it
+# (--build-arg NODE_BASE_IMAGE=...) with a mirror of the same official image,
+# because anonymous pulls from shared runner IPs hit ECR Public's data limit.
+ARG NODE_BASE_IMAGE=public.ecr.aws/docker/library/node:22-bookworm-slim
+FROM ${NODE_BASE_IMAGE} AS build
 WORKDIR /app
 COPY package.json package-lock.json tsconfig.base.json tsconfig.build.json types-node-compat.d.ts ./
 COPY apps ./apps
@@ -8,7 +12,7 @@ RUN npm ci --no-audit --no-fund
 RUN npx tsc -b apps/mcp-server
 RUN npm prune --omit=dev --no-audit --no-fund
 
-FROM public.ecr.aws/docker/library/node:22-bookworm-slim
+FROM ${NODE_BASE_IMAGE}
 # psql applies migrations in the pre-deploy step (scripts/deploy/db_prepare.mjs).
 RUN apt-get update \
   && apt-get install -y --no-install-recommends postgresql-client \

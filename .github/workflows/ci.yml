@@ -93,10 +93,16 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
+      # Render builds with the Dockerfiles' default base image (ECR Public). From
+      # shared runner IPs, anonymous ECR Public pulls hit its data limit (429), so
+      # CI pulls the same official image from a mirror first, with retries.
+      - name: Pull the Node base image
+        id: base
+        run: echo "image=$(scripts/ci/pull-base-image.sh)" >> "$GITHUB_OUTPUT"
       - name: Build MCP server image
-        run: docker build -f apps/mcp-server/Dockerfile -t shopvoice-mcp .
+        run: docker build --build-arg NODE_BASE_IMAGE="${{ steps.base.outputs.image }}" -f apps/mcp-server/Dockerfile -t shopvoice-mcp .
       - name: Build console image
-        run: docker build -f apps/console/Dockerfile -t shopvoice-console .
+        run: docker build --build-arg NODE_BASE_IMAGE="${{ steps.base.outputs.image }}" -f apps/console/Dockerfile -t shopvoice-console .
       - name: Images carry what the deploy needs, and no secrets
         run: |
           docker run --rm shopvoice-mcp sh -c 'psql --version && test -f scripts/deploy/db_prepare.mjs && test -f apps/supplier-agent/dist/index.js && node --input-type=module -e "await import(\"./apps/mcp-server/dist/toolkit/agent-toolkit.js\")" && test -d db/migrations && test ! -e .env && test -d node_modules/pg && ! test -d node_modules/typescript'
