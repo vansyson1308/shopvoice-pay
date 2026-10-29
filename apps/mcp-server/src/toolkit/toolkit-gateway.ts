@@ -48,6 +48,26 @@ export function loadToolkitGatewayConfig(env: Record<string, string | undefined>
   };
 }
 
+/**
+ * The rows of one Transaction Search page, after checking the response is one.
+ * PayPal answers an empty window with 200, `total_items: 0` and no
+ * `transaction_details` key at all (observed in the sandbox, 2026-10-29), so
+ * a missing array is valid only when the count says there is nothing. Any
+ * other shape is an unexpected response, never silently "no transactions".
+ */
+export function transactionSearchRows(out: Record<string, unknown>): Record<string, unknown>[] {
+  const total = out.total_items;
+  const details = out.transaction_details;
+  if (typeof total !== 'number' || !Number.isSafeInteger(total) || total < 0) {
+    throw new ToolkitError('unexpected_response', null, 'Transaction search returned no item count');
+  }
+  if (details === undefined && total === 0) return [];
+  if (!Array.isArray(details) || (total > 0 && details.length === 0) || details.length > total) {
+    throw new ToolkitError('unexpected_response', null, 'Transaction search rows do not match its item count');
+  }
+  return details.filter((row): row is Record<string, unknown> => !!row && typeof row === 'object');
+}
+
 export class ToolkitPolicyError extends Error {
   constructor(readonly code: string, message: string) {
     super(message);
@@ -173,7 +193,7 @@ export class ToolkitGateway {
     if (ours.size === 0) {
       return { status: 'nothing_to_check', days: span, ledgerCount: 0, ledgerTotalMinor: 0, listedCount: 0, notYetListed: 0, amountMismatches: 0, otherPayPalActivity: 0, lastRefreshed: null };
     }
-    const out = await this.runner.run<{ transaction_details?: unknown; last_refreshed_datetime?: unknown }>('list_transactions', {
+    const out = await this.runner.run<Record<string, unknown>>('list_transactions', {
       start_date: new Date(start).toISOString(),
       end_date: new Date(end).toISOString(),
       transaction_status: 'S'
@@ -181,7 +201,7 @@ export class ToolkitGateway {
     let listed = 0;
     let mismatches = 0;
     let other = 0;
-    for (const row of Array.isArray(out.transaction_details) ? (out.transaction_details as Record<string, unknown>[]) : []) {
+    for (const row of transactionSearchRows(out)) {
       const info = (row.transaction_info ?? {}) as Record<string, unknown>;
       const id = typeof info.transaction_id === 'string' ? info.transaction_id : '';
       const amount = info.transaction_amount as { currency_code?: unknown; value?: unknown } | undefined;

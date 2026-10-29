@@ -713,9 +713,10 @@ export class MockPayPal {
     }
     return {
       status: 200,
+      // An empty window has no transaction_details key at all, as in the sandbox (2026-10-29).
       body: {
-        transaction_details: rows, account_number: 'MOCKMERCHANT1', start_date: new Date(start).toISOString(), end_date: new Date(end).toISOString(),
-        last_refreshed_datetime: new Date(visibleUntil).toISOString(), page: 1, total_items: rows.length, total_pages: 1
+        ...(rows.length > 0 ? { transaction_details: rows } : {}), account_number: 'MOCKMERCHANT1', start_date: new Date(start).toISOString(), end_date: new Date(end).toISOString(),
+        last_refreshed_datetime: new Date(visibleUntil).toISOString(), page: 1, total_items: rows.length, total_pages: rows.length > 0 ? 1 : 0
       }
     };
   }
