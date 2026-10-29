@@ -9,7 +9,7 @@ import assert from 'node:assert/strict';
 import { request } from 'node:http';
 import { createPayPalRuntime } from '../../apps/mcp-server/dist/payments/index.js';
 import { createToolkitRunner, startMockToolkitBridge, TOOLKIT_DENIED, ToolkitError } from '../../apps/mcp-server/dist/toolkit/agent-toolkit.js';
-import { ToolkitGateway, loadToolkitGatewayConfig, recipientAllowed, cleanText, ToolkitPolicyError } from '../../apps/mcp-server/dist/toolkit/toolkit-gateway.js';
+import { ToolkitGateway, loadToolkitGatewayConfig, recipientAllowed, cleanText, ToolkitPolicyError, transactionSearchRows } from '../../apps/mcp-server/dist/toolkit/toolkit-gateway.js';
 import { MemoryShopStore } from '../../apps/mcp-server/dist/memory-store.js';
 import { autoCommitRepository } from '../../apps/mcp-server/dist/auto-commit.js';
 import { startMcpServer, connectClient, twoTenantDataset, mockPayments, spoken, wordCount, DEMO_TENANT_ID, TOKEN_B, ANCHOR } from './mcp-harness.mjs';
@@ -191,6 +191,41 @@ test('MCP: a charged delivery gets PayPal tracking; the cross-check matches; no 
 
     for (const out of outputs) assert.ok(!out.includes(captureId), 'capture id leaked to tool output');
   } finally {
+    await client.close();
+    await srv.close();
+  }
+});
+
+test('transaction search: an empty window has no transaction_details key; anything malformed is an error', () => {
+  // Sandbox, 2026-10-29: an empty 7-day window is 200 with total_items 0 and no transaction_details.
+  assert.deepEqual(transactionSearchRows({ account_number: 'X', total_items: 0, total_pages: 0, page: 1 }), []);
+  assert.deepEqual(transactionSearchRows({ total_items: 0, transaction_details: [] }), []);
+  const row = { transaction_info: { transaction_id: 'T1' } };
+  assert.deepEqual(transactionSearchRows({ total_items: 1, transaction_details: [row] }), [row]);
+  assert.equal(transactionSearchRows({ total_items: 150, transaction_details: Array.from({ length: 100 }, () => row) }).length, 100, 'one page of a larger result');
+  for (const bad of [{}, { raw: 'not json' }, { total_items: '0' }, { total_items: 2 }, { total_items: 2, transaction_details: [] }, { total_items: 1, transaction_details: 'x' }, { total_items: 1, transaction_details: [row, row] }]) {
+    assert.throws(() => transactionSearchRows(bad), (e) => e instanceof ToolkitError && e.code === 'unexpected_response', JSON.stringify(bad));
+  }
+});
+
+test('MCP: a malformed transaction-search answer is reported as unavailable, never as lag', async () => {
+  const payments = mockPayments(clock);
+  const srv = await startMcpServer({ store: new MemoryShopStore(twoTenantDataset(), clock), payments });
+  const { client } = await connectClient(srv.url);
+  const mock = payments.runtime.mock;
+  const realFetch = mock.fetch;
+  try {
+    await fullDelivery(client);
+    mock.fetch = async (url, init) => (new URL(url).pathname === '/v1/reporting/transactions'
+      ? { status: 200, headers: { get: () => null }, text: async () => '{"unexpected":true}' }
+      : realFetch(url, init));
+    const r = await client.callTool({ name: 'check_paypal_records', arguments: {} });
+    assert.equal(r.structuredContent.status, 'unavailable', spoken(r));
+    assert.doesNotMatch(spoken(r), /lag|not listed/);
+    mock.fetch = realFetch;
+    assert.equal((await client.callTool({ name: 'check_paypal_records', arguments: {} })).structuredContent.status, 'match');
+  } finally {
+    mock.fetch = realFetch;
     await client.close();
     await srv.close();
   }

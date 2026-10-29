@@ -44,6 +44,21 @@ That is about **$21 per month**. Paid instances do not sleep, which the demo nee
 
 Later deploys happen automatically when CI passes on `main` (`autoDeployTrigger: checksPass`).
 
+## Base image and registry limits
+
+Both Dockerfiles take the Node base image from `ARG NODE_BASE_IMAGE`. The default is `public.ecr.aws/docker/library/node:22-bookworm-slim`, and Render builds with it unchanged.
+
+CI does not pull from ECR Public directly. Anonymous ECR Public pulls are capped per source IP (500 GB a month), and from shared GitHub runner IPs that cap is often already spent (`429 toomanyrequests: Data limit exceeded`).
+
+Instead, `scripts/ci/pull-base-image.sh` pulls the same official image, retrying each source in this order:
+1. `mirror.gcr.io` (Google's Docker Hub cache, which does not count against Docker Hub limits);
+2. Docker Hub;
+3. ECR Public.
+
+It then passes the image that worked as a `--build-arg`. The image digest is identical across all three.
+
+**If a Render build ever fails the same way**, set an environment variable `NODE_BASE_IMAGE=mirror.gcr.io/library/node:22-bookworm-slim` on both web services. Render passes service env vars to the build as Docker build args, so no code change is needed. Remove the variable to go back to the default. Render also caches public base images, which makes this unlikely.
+
 ## Running the same images locally
 
 ```bash

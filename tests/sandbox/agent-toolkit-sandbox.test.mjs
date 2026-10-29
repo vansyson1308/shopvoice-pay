@@ -10,8 +10,8 @@ import { encryptPayload } from '../../packages/common/dist/index.js';
 import { createPayPalRuntime, PaymentsService } from '../../apps/mcp-server/dist/payments/index.js';
 import { MemoryPaymentsData, MemoryPaymentsRepository } from '../../apps/mcp-server/dist/ledger/index.js';
 import { DEFAULT_POLICY } from '../../apps/mcp-server/dist/policy/index.js';
-import { createToolkitRunner } from '../../apps/mcp-server/dist/toolkit/agent-toolkit.js';
-import { ToolkitGateway, loadToolkitGatewayConfig, recipientAllowed } from '../../apps/mcp-server/dist/toolkit/toolkit-gateway.js';
+import { createToolkitRunner, ToolkitError } from '../../apps/mcp-server/dist/toolkit/agent-toolkit.js';
+import { ToolkitGateway, loadToolkitGatewayConfig, recipientAllowed, transactionSearchRows } from '../../apps/mcp-server/dist/toolkit/toolkit-gateway.js';
 
 const vaultId = process.env.SANDBOX_VAULT_ID ?? '';
 const supplierEmail = process.env.SANDBOX_SUPPLIER_EMAIL ?? '';
@@ -35,10 +35,18 @@ test('sandbox: Agent Toolkit catering invoice (create, send, read back) and tran
   assert.equal(live.amount?.value, '90.00');
   // Sending again replays nothing new.
   assert.equal((await gateway.sendCatering(ctx, invoice.id, "Maria's Corner Market")).paypalInvoiceId, sent.paypalInvoiceId);
-  // Transaction search answers for a 7-day window (contents lag in the sandbox).
+  // Transaction search answers for a 7-day window. The sandbox account may have
+  // had no transactions in it (invoices are not transactions), and then PayPal
+  // omits transaction_details entirely; an API error still throws above.
   const now = Date.now();
   const search = await runner.run('list_transactions', { start_date: new Date(now - 7 * 86_400_000).toISOString(), end_date: new Date(now).toISOString(), transaction_status: 'S' });
-  assert.ok(Array.isArray(search.transaction_details));
+  const rows = transactionSearchRows(search);
+  assert.equal(typeof search.account_number, 'string');
+  assert.ok(!Number.isNaN(Date.parse(search.last_refreshed_datetime)), 'PayPal reports how fresh its data is');
+  assert.equal(rows.length, Math.min(search.total_items, 100), 'page 1 holds every row up to the page size');
+  for (const row of rows) assert.equal(typeof row.transaction_info?.transaction_id, 'string');
+  // A malformed request is an error, not an empty result.
+  await assert.rejects(runner.run('list_transactions', { start_date: 'not-a-date', end_date: new Date(now).toISOString(), transaction_status: 'S' }), (e) => e instanceof ToolkitError && e.status === 400);
 });
 
 test('sandbox: Agent Toolkit tracking on a real capture, records cross-check, invoice to the supplier account', { skip: !enabled }, async () => {
