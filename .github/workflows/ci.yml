@@ -11,7 +11,7 @@ permissions:
 jobs:
   checks:
     name: lint, typecheck, unit, db, e2e
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 25
     services:
       postgres:
@@ -89,7 +89,7 @@ jobs:
 
   images:
     name: Docker images (render.yaml)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
@@ -104,7 +104,7 @@ jobs:
 
   sandbox:
     name: PayPal sandbox integration
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     # Runs only when the repository has sandbox credentials configured.
     # Forked PRs never see secrets, so this job is skipped for them.
